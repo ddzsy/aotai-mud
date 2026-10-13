@@ -1,0 +1,325 @@
+{
+  "shop": [
+    {
+      "id": "food_6",
+      "name": "干粮×6",
+      "cost": 70,
+      "type": "food",
+      "amount": 6,
+      "weight": 1.2
+    },
+    {
+      "id": "food_12",
+      "name": "干粮×12",
+      "cost": 130,
+      "type": "food",
+      "amount": 12,
+      "weight": 2.4
+    },
+    {
+      "id": "water_5",
+      "name": "瓶装水×5",
+      "cost": 18,
+      "type": "water",
+      "amount": 5,
+      "weight": 2.5
+    },
+    {
+      "id": "water_10",
+      "name": "瓶装水×10",
+      "cost": 32,
+      "type": "water",
+      "amount": 10,
+      "weight": 5.0
+    },
+    {
+      "id": "shell",
+      "name": "冲锋衣",
+      "cost": 165,
+      "type": "gear",
+      "gear": "shell",
+      "weight": 0.55
+    },
+    {
+      "id": "rain_pants",
+      "name": "雨裤",
+      "cost": 45,
+      "type": "gear",
+      "gear": "rain_pants",
+      "weight": 0.25
+    },
+    {
+      "id": "gaiters",
+      "name": "雪套",
+      "cost": 38,
+      "type": "gear",
+      "gear": "gaiters",
+      "weight": 0.15
+    },
+    {
+      "id": "goggles",
+      "name": "雪镜/护目镜",
+      "cost": 55,
+      "type": "gear",
+      "gear": "goggles",
+      "weight": 0.12
+    },
+    {
+      "id": "tarp",
+      "name": "天幕",
+      "cost": 85,
+      "type": "gear",
+      "gear": "tarp",
+      "weight": 0.45
+    },
+    {
+      "id": "bivy",
+      "name": "应急 bivy",
+      "cost": 120,
+      "type": "gear",
+      "gear": "bivy",
+      "weight": 0.35
+    },
+    {
+      "id": "pad",
+      "name": "泡沫垫",
+      "cost": 35,
+      "type": "gear",
+      "gear": "pad",
+      "weight": 0.4
+    },
+    {
+      "id": "hot_pack",
+      "name": "暖宝宝×6",
+      "cost": 28,
+      "type": "gear",
+      "gear": "hot_pack",
+      "weight": 0.2
+    },
+    {
+      "id": "stove",
+      "name": "炉头",
+      "cost": 75,
+      "type": "gear",
+      "gear": "stove",
+      "weight": 0.3
+    },
+    {
+      "id": "fuel",
+      "name": "气罐×2",
+      "cost": 40,
+      "type": "gear",
+      "gear": "fuel",
+      "weight": 0.5
+    },
+    {
+      "id": "headlamp",
+      "name": "头灯",
+      "cost": 42,
+      "type": "gear",
+      "gear": "headlamp",
+      "weight": 0.1
+    },
+    {
+      "id": "gps",
+      "name": "简易 GPS",
+      "cost": 95,
+      "type": "gear",
+      "gear": "gps",
+      "weight": 0.15
+    },
+    {
+      "id": "whistle",
+      "name": "求生哨",
+      "cost": 8,
+      "type": "gear",
+      "gear": "whistle",
+      "weight": 0.02
+    },
+    {
+      "id": "poncho",
+      "name": "一次性雨衣",
+      "cost": 12,
+      "type": "gear",
+      "gear": "poncho",
+      "weight": 0.08
+    }
+  ],
+  "gear": {
+    "shell": {
+      "name": "冲锋衣",
+      "mitigate": [
+        "rain",
+        "heavy_rain",
+        "storm"
+      ],
+      "stamReduce": 6,
+      "multReduce": 0.12
+    },
+    "rain_pants": {
+      "name": "雨裤",
+      "mitigate": [
+        "rain",
+        "heavy_rain"
+      ],
+      "stamReduce": 3,
+      "multReduce": 0.06
+    },
+    "gaiters": {
+      "name": "雪套",
+      "mitigate": [
+        "blizzard",
+        "snow"
+      ],
+      "stamReduce": 5,
+      "multReduce": 0.08
+    },
+    "goggles": {
+      "name": "护目镜",
+      "mitigate": [
+        "whiteout",
+        "blizzard",
+        "fog"
+      ],
+      "stamReduce": 4,
+      "multReduce": 0.05
+    },
+    "tarp": {
+      "name": "天幕",
+      "campAny": true,
+      "nightBonus": 8
+    },
+    "bivy": {
+      "name": "应急bivy",
+      "campAny": true,
+      "nightBonus": 12
+    },
+    "pad": {
+      "name": "泡沫垫",
+      "nightBonus": 6
+    },
+    "hot_pack": {
+      "name": "暖宝宝",
+      "mitigate": [
+        "blizzard",
+        "snow",
+        "whiteout"
+      ],
+      "stamReduce": 8,
+      "consumable": true,
+      "uses": 6
+    },
+    "stove": {
+      "name": "炉头",
+      "needsFuel": true,
+      "nightBonus": 5
+    },
+    "fuel": {
+      "name": "气罐",
+      "fuelUses": 4
+    },
+    "headlamp": {
+      "name": "头灯",
+      "mitigate": [
+        "fog",
+        "whiteout"
+      ],
+      "stamReduce": 2
+    },
+    "gps": {
+      "name": "GPS",
+      "mitigate": [
+        "fog",
+        "whiteout"
+      ],
+      "stamReduce": 5,
+      "multReduce": 0.1
+    },
+    "poncho": {
+      "name": "雨衣",
+      "mitigate": [
+        "rain",
+        "heavy_rain"
+      ],
+      "stamReduce": 4,
+      "consumable": true,
+      "uses": 3
+    },
+    "whistle": {
+      "name": "求生哨",
+      "stamReduce": 0
+    }
+  },
+  "emergencies": [
+    {
+      "id": "blizzard",
+      "name": "暴雪",
+      "weather": "blizzard",
+      "minRisk": 3,
+      "weight": 1.2,
+      "stam": 14,
+      "mult": 0.35,
+      "log": "狂风卷雪，能见度骤降，梁顶瞬间变白。"
+    },
+    {
+      "id": "heavy_rain",
+      "name": "暴雨",
+      "weather": "heavy_rain",
+      "minRisk": 2,
+      "weight": 1.1,
+      "stam": 10,
+      "mult": 0.25,
+      "log": "乌云压顶，暴雨如注，路滑且失温风险上升。"
+    },
+    {
+      "id": "whiteout",
+      "name": "白茫",
+      "weather": "whiteout",
+      "minRisk": 4,
+      "weight": 0.9,
+      "stam": 12,
+      "mult": 0.3,
+      "log": "天地一片白茫，分不清天与地，只能凭轨迹硬走。"
+    },
+    {
+      "id": "gale",
+      "name": "狂风",
+      "weather": "gale",
+      "minRisk": 3,
+      "weight": 1.0,
+      "stam": 9,
+      "mult": 0.2,
+      "log": "垭口狂风几乎把人吹倒，每步都要压低重心。"
+    },
+    {
+      "id": "thunder",
+      "name": "雷暴",
+      "weather": "storm",
+      "minRisk": 4,
+      "weight": 0.85,
+      "stam": 16,
+      "mult": 0.28,
+      "log": "雷声在头顶炸响，金属装备滋滋作响——快离开暴露梁顶！"
+    },
+    {
+      "id": "fog_wall",
+      "name": "浓雾墙",
+      "weather": "fog",
+      "minRisk": 2,
+      "weight": 1.3,
+      "stam": 7,
+      "mult": 0.18,
+      "log": "一团浓雾墙迎面扑来，十米外只剩灰白。"
+    },
+    {
+      "id": "snow",
+      "name": "阵雪",
+      "weather": "snow",
+      "minRisk": 2,
+      "weight": 1.0,
+      "stam": 6,
+      "mult": 0.15,
+      "log": "气温骤降，阵雪打在脸上生疼。"
+    }
+  ]
+}
