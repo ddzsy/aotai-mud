@@ -1,13 +1,5 @@
 /* global THREE */
 window.AotaiMap3D = (function () {
-  const CAM_ORDER = ["follow", "aerial", "ridge", "trail"];
-  const CAM_LABELS = {
-    follow: "跟随",
-    aerial: "俯瞰",
-    ridge: "侧视",
-    trail: "行山视角",
-  };
-
   let ready = false;
   let canvas, renderer, scene, camera, clock;
   let worldPts = [];
@@ -18,8 +10,9 @@ window.AotaiMap3D = (function () {
   let player = null;
   let playerGlow = null;
   let markers = [];
-  let cameraMode = "follow";
   let playerIdx = 0;
+  let geoOrigin = { lon: 107.768, lat: 34.02 };
+  const WORLD_SCALE = 0.00115;
   let weatherId = "clear";
   let animId = 0;
   let camTarget = new THREE.Vector3();
@@ -51,10 +44,19 @@ window.AotaiMap3D = (function () {
     return s - Math.floor(s);
   }
 
-  function ridgeHeightAt(x, z) {
-    if (!worldPts.length) return 0;
-    let best = 0;
+  function lonLatToXZ(lon, lat) {
+    const R = 6378137;
+    const cos = Math.cos(geoOrigin.lat * Math.PI / 180);
+    const x = (lon - geoOrigin.lon) * (Math.PI / 180) * R * cos * WORLD_SCALE;
+    const z = -(lat - geoOrigin.lat) * (Math.PI / 180) * R * WORLD_SCALE;
+    return { x, z };
+  }
+
+  function sampleTrailAt(x, z) {
     let bestD = 1e9;
+    let bestY = 0;
+    let tanX = 1;
+    let tanZ = 0;
     for (let i = 0; i < worldPts.length - 1; i++) {
       const a = worldPts[i];
       const b = worldPts[i + 1];
@@ -71,28 +73,95 @@ window.AotaiMap3D = (function () {
       const d = (x - px) * (x - px) + (z - pz) * (z - pz);
       if (d < bestD) {
         bestD = d;
-        best = py;
+        bestY = py;
+        tanX = abx;
+        tanZ = abz;
       }
     }
-    const dist = Math.sqrt(bestD);
-    const falloff = Math.exp(-dist * dist / 90);
-    const n = (hash2(x * 0.3, z * 0.3) - 0.5) * 1.2;
-    return best * falloff + n * falloff * 0.4;
+    return { dist: Math.sqrt(bestD), y: bestY, tanX, tanZ };
+  }
+
+  function fbm(x, z) {
+    let v = 0;
+    let a = 1;
+    let f = 1;
+    for (let i = 0; i < 4; i++) {
+      v += a * (hash2(x * f, z * f) - 0.5);
+      a *= 0.5;
+      f *= 2.1;
+    }
+    return v;
+  }
+
+  function ridgeHeightAt(x, z) {
+    const s = sampleTrailAt(x, z);
+    const d = s.dist;
+    const ridge = Math.exp(-(d * d) / 55);
+    const mid = Math.exp(-(d * d) / 220) * 0.35;
+    const valley = (1 - ridge) * 3.8;
+    const n = fbm(x * 0.22, z * 0.22) * 1.6 * ridge;
+    const rock = Math.max(0, s.y - 8) * 0.04 * ridge;
+    return s.y * ridge + mid * s.y - valley + n + rock;
   }
 
   function buildWorldPoints(points) {
-    let km = 0;
     const altBase = 800;
+    if (points[0].lon != null) {
+      geoOrigin.lon = points[0].lon;
+      geoOrigin.lat = points[0].lat;
+    }
+    let heading = 0;
+    let lastX = 0;
+    let lastZ = 0;
     return points.map((p, i) => {
-      if (i) km += p.km_from_prev;
-      const lateral = ((p.x || 500) - 500) * 0.045;
+      let x;
+      let z;
+      if (p.lon != null && p.lat != null) {
+        const xz = lonLatToXZ(p.lon, p.lat);
+        x = xz.x;
+        z = xz.z;
+      } else if (i > 0) {
+        const prev = points[i - 1];
+        const dx = (p.x || 0) - (prev.x || 0);
+        const dy = (p.y || 0) - (prev.y || 0);
+        heading = Math.atan2(dx, -dy);
+        const dist = p.km_from_prev * 1.1;
+        x = lastX + Math.sin(heading) * dist;
+        z = lastZ + Math.cos(heading) * dist;
+      } else {
+        x = 0;
+        z = 0;
+      }
+      lastX = x;
+      lastZ = z;
       return {
-        x: km * 1.15,
+        x,
         y: (p.alt_m - altBase) * 0.038,
-        z: lateral + Math.sin(i * 0.35) * 1.8,
+        z,
         meta: p,
       };
     });
+  }
+
+  function buildRockScatter() {
+    const geo = new THREE.DodecahedronGeometry(0.35, 0);
+    const mat = new THREE.MeshStandardMaterial({ color: 0x6a6560, roughness: 0.95 });
+    for (let i = 0; i < 420; i++) {
+      const wp = worldPts[Math.floor(Math.random() * worldPts.length)];
+      const tan = trailTangent(Math.min(worldPts.length - 2, Math.floor(Math.random() * worldPts.length)));
+      const side = (Math.random() - 0.5) * 10;
+      const along = (Math.random() - 0.5) * 6;
+      const px = wp.x + tan.x * along + tan.z * side;
+      const pz = wp.z + tan.z * along - tan.x * side;
+      const h = ridgeHeightAt(px, pz);
+      if (h < wp.y * 0.55) continue;
+      const m = new THREE.Mesh(geo, mat);
+      const s = 0.6 + Math.random() * 1.8;
+      m.scale.set(s, s * 0.7, s);
+      m.position.set(px, h + 0.2, pz);
+      m.rotation.set(Math.random(), Math.random(), Math.random());
+      scene.add(m);
+    }
   }
 
   function buildTerrain() {
@@ -105,9 +174,9 @@ window.AotaiMap3D = (function () {
     });
     const cx = (minX + maxX) / 2;
     const cz = (minZ + maxZ) / 2;
-    const span = Math.max(maxX - minX, maxZ - minZ) + 40;
-    const size = Math.max(160, span);
-    const seg = 80;
+    const span = Math.max(maxX - minX, maxZ - minZ) + 55;
+    const size = Math.max(180, span);
+    const seg = 128;
     const geo = new THREE.PlaneGeometry(size, size, seg, seg);
     geo.rotateX(-Math.PI / 2);
     const pos = geo.attributes.position;
@@ -121,7 +190,8 @@ window.AotaiMap3D = (function () {
       const x = pos.getX(i) + cx;
       const z = pos.getZ(i) + cz;
       const h = ridgeHeightAt(x, z);
-      pos.setY(i, h - 1.8);
+      const slope = ridgeHeightAt(x + 0.4, z) - ridgeHeightAt(x - 0.4, z);
+      pos.setY(i, h - 1.6 - Math.abs(slope) * 0.15);
       const t = Math.min(1, Math.max(0, (h - 2) / 18));
       const col = new THREE.Color();
       if (t < 0.35) col.copy(cLow).lerp(cMid, t / 0.35);
@@ -495,24 +565,14 @@ window.AotaiMap3D = (function () {
     const tan = trailTangent(playerIdx);
     const up = new THREE.Vector3(0, 1, 0);
     const right = new THREE.Vector3().crossVectors(tan, up).normalize();
-    const center = worldPts[Math.floor(worldPts.length / 2)];
-
-    if (cameraMode === "follow") {
-      camDesired.copy(pos).add(tan.clone().multiplyScalar(-10)).add(new THREE.Vector3(0, 6, 0));
-      camTarget.copy(pos).add(new THREE.Vector3(0, 2, 0));
-    } else if (cameraMode === "aerial") {
-      camDesired.set(center.x, center.y + 42, center.z + 8);
-      camTarget.copy(pos).add(new THREE.Vector3(0, 1, 0));
-    } else if (cameraMode === "ridge") {
-      camDesired.copy(pos).add(right.clone().multiplyScalar(14)).add(new THREE.Vector3(0, 5, 0));
-      camTarget.copy(pos).add(tan.clone().multiplyScalar(6));
-    } else {
-      camDesired.copy(pos).add(new THREE.Vector3(0, 1.6, 0));
-      camTarget.copy(pos).add(tan.clone().multiplyScalar(12)).add(new THREE.Vector3(0, 1, 0));
-    }
+    const behind = tan.clone().multiplyScalar(-14);
+    const side = right.clone().multiplyScalar(7.5);
+    const elevate = new THREE.Vector3(0, 11, 0);
+    camDesired.copy(pos).add(behind).add(side).add(elevate);
+    camTarget.copy(pos).add(tan.clone().multiplyScalar(9)).add(new THREE.Vector3(0, 1.8, 0));
 
     const lerp = 1 - Math.pow(0.001, dt || 0.016);
-    camera.position.lerp(camDesired, lerp * 0.12);
+    camera.position.lerp(camDesired, lerp * 0.14);
     camera.lookAt(camTarget);
   }
 
@@ -586,6 +646,7 @@ window.AotaiMap3D = (function () {
     scene.add(dirLight);
 
     buildTerrain();
+    buildRockScatter();
     buildTrail();
     buildMarkers();
     buildPlayer();
@@ -621,20 +682,6 @@ window.AotaiMap3D = (function () {
     setWeatherVisual(weather);
   }
 
-  function setCameraMode(mode) {
-    if (CAM_ORDER.includes(mode)) cameraMode = mode;
-  }
-
-  function cycleCameraMode() {
-    const i = CAM_ORDER.indexOf(cameraMode);
-    cameraMode = CAM_ORDER[(i + 1) % CAM_ORDER.length];
-    return cameraMode;
-  }
-
-  function getCameraLabel() {
-    return CAM_LABELS[cameraMode] || cameraMode;
-  }
-
   function isReady() {
     return ready;
   }
@@ -643,9 +690,6 @@ window.AotaiMap3D = (function () {
     init,
     update,
     resize,
-    setCameraMode,
-    cycleCameraMode,
-    getCameraLabel,
     isReady,
   };
 })();
