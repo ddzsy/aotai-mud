@@ -17,6 +17,12 @@ window.AotaiMap3D = (function () {
   let animId = 0;
   let camTarget = new THREE.Vector3();
   let camDesired = new THREE.Vector3();
+  /** 0 = 全貌（最远） · 1 = 近景航拍（最近） */
+  let mapZoom = 0.52;
+  let routeBounds = null;
+  let playerBeam = null;
+  let playerRing = null;
+  let playerGroup = null;
   let dirLight = null;
   let hemiLight = null;
   let weatherRoot = null;
@@ -307,25 +313,71 @@ window.AotaiMap3D = (function () {
     });
   }
 
+  function computeRouteBounds() {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity, maxY = 0;
+    worldPts.forEach((p) => {
+      minX = Math.min(minX, p.x);
+      maxX = Math.max(maxX, p.x);
+      minZ = Math.min(minZ, p.z);
+      maxZ = Math.max(maxZ, p.z);
+      maxY = Math.max(maxY, p.y);
+    });
+    routeBounds = {
+      cx: (minX + maxX) / 2,
+      cz: (minZ + maxZ) / 2,
+      cy: maxY * 0.35,
+      span: Math.max(maxX - minX, maxZ - minZ),
+      maxY,
+    };
+  }
+
   function buildPlayer() {
+    playerGroup = new THREE.Group();
     player = new THREE.Mesh(
-      new THREE.SphereGeometry(0.55, 16, 16),
+      new THREE.SphereGeometry(1.05, 16, 16),
       new THREE.MeshStandardMaterial({
-        color: 0xe8a54b,
-        emissive: 0xe8a54b,
-        emissiveIntensity: 0.55,
+        color: 0xffb84d,
+        emissive: 0xff9900,
+        emissiveIntensity: 0.85,
       })
     );
     playerGlow = new THREE.Mesh(
-      new THREE.SphereGeometry(0.9, 16, 16),
+      new THREE.SphereGeometry(1.65, 16, 16),
       new THREE.MeshBasicMaterial({
-        color: 0xe8a54b,
+        color: 0xffcc66,
         transparent: true,
-        opacity: 0.18,
+        opacity: 0.28,
+        depthWrite: false,
       })
     );
-    scene.add(player);
-    scene.add(playerGlow);
+    playerBeam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.12, 0.55, 16, 10, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xffaa33,
+        transparent: true,
+        opacity: 0.55,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+    );
+    playerBeam.position.y = 8;
+    playerRing = new THREE.Mesh(
+      new THREE.RingGeometry(1.4, 2.4, 40),
+      new THREE.MeshBasicMaterial({
+        color: 0xffcc44,
+        transparent: true,
+        opacity: 0.9,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+    );
+    playerRing.rotation.x = -Math.PI / 2;
+    playerRing.position.y = 0.15;
+    playerGroup.add(playerRing);
+    playerGroup.add(playerBeam);
+    playerGroup.add(playerGlow);
+    playerGroup.add(player);
+    scene.add(playerGroup);
   }
 
   function spawnLocalParticle(i, box, yBias) {
@@ -560,20 +612,53 @@ window.AotaiMap3D = (function () {
     return new THREE.Vector3(p.x, p.y + 0.55, p.z);
   }
 
+  function clampZoom(z) {
+    mapZoom = Math.max(0, Math.min(1, z));
+    const slider = document.getElementById("mapZoomSlider");
+    if (slider) slider.value = String(Math.round(mapZoom * 100));
+  }
+
+  function setZoom(z) {
+    clampZoom(z);
+  }
+
+  function adjustZoom(delta) {
+    clampZoom(mapZoom + delta);
+  }
+
   function updateCamera(dt) {
+    if (!routeBounds) computeRouteBounds();
     const pos = playerPos();
-    const tan = trailTangent(playerIdx);
-    const up = new THREE.Vector3(0, 1, 0);
-    const right = new THREE.Vector3().crossVectors(tan, up).normalize();
-    const behind = tan.clone().multiplyScalar(-14);
-    const side = right.clone().multiplyScalar(7.5);
-    const elevate = new THREE.Vector3(0, 11, 0);
-    camDesired.copy(pos).add(behind).add(side).add(elevate);
-    camTarget.copy(pos).add(tan.clone().multiplyScalar(9)).add(new THREE.Vector3(0, 1.8, 0));
+    const t = mapZoom;
+    const b = routeBounds;
+
+    const lookAt = new THREE.Vector3(
+      THREE.MathUtils.lerp(b.cx, pos.x, t),
+      THREE.MathUtils.lerp(b.cy, pos.y + 1.5, t),
+      THREE.MathUtils.lerp(b.cz, pos.z, t)
+    );
+
+    const fullH = b.span * 0.72 + b.maxY * 0.9 + 18;
+    const nearH = 22 + b.maxY * 0.08;
+    const height = THREE.MathUtils.lerp(fullH, nearH, t);
+    const tilt = THREE.MathUtils.lerp(b.span * 0.22, 10, t);
+    const side = THREE.MathUtils.lerp(b.span * 0.18, 11, t);
+
+    camDesired.set(lookAt.x + side, lookAt.y + height, lookAt.z + tilt);
+    camTarget.copy(lookAt);
 
     const lerp = 1 - Math.pow(0.001, dt || 0.016);
-    camera.position.lerp(camDesired, lerp * 0.14);
+    camera.position.lerp(camDesired, lerp * 0.16);
+    camera.fov = THREE.MathUtils.lerp(50, 46, t);
+    camera.updateProjectionMatrix();
     camera.lookAt(camTarget);
+
+    const pillar = THREE.MathUtils.lerp(1.4, 1, t);
+    if (playerBeam) {
+      playerBeam.scale.set(pillar, pillar, pillar);
+      playerBeam.material.opacity = THREE.MathUtils.lerp(0.75, 0.5, t);
+    }
+    if (playerRing) playerRing.scale.setScalar(THREE.MathUtils.lerp(1.8, 1, t));
   }
 
   function setWeatherVisual(id) {
@@ -581,7 +666,8 @@ window.AotaiMap3D = (function () {
     if (!scene) return;
     const profile = WEATHER_PROFILES[weatherId] || WEATHER_PROFILES.clear;
     const fogCol = new THREE.Color(profile.fogColor);
-    scene.fog = new THREE.FogExp2(fogCol.getHex(), profile.fog);
+    const fogMul = THREE.MathUtils.lerp(0.25, 1, mapZoom);
+    scene.fog = new THREE.FogExp2(fogCol.getHex(), profile.fog * fogMul);
     scene.background = fogCol.clone().lerp(new THREE.Color(0x0f1419), 0.55);
 
     applyPrecipProfile(profile);
@@ -605,12 +691,13 @@ window.AotaiMap3D = (function () {
   function animate() {
     animId = requestAnimationFrame(animate);
     const dt = clock.getDelta();
-    if (player && worldPts[playerIdx]) {
+    if (playerGroup && worldPts[playerIdx]) {
       const p = worldPts[playerIdx];
       const target = new THREE.Vector3(p.x, p.y + 0.55, p.z);
-      player.position.lerp(target, 0.18);
-      playerGlow.position.copy(player.position);
-      playerGlow.scale.setScalar(1 + Math.sin(clock.elapsedTime * 2) * 0.08);
+      playerGroup.position.lerp(target, 0.2);
+      const pulse = 1 + Math.sin(clock.elapsedTime * 2.2) * 0.1;
+      if (playerGlow) playerGlow.scale.setScalar(1.65 * pulse);
+      if (playerRing) playerRing.material.opacity = 0.75 + Math.sin(clock.elapsedTime * 3) * 0.15;
     }
     maybeLightning();
     updateWeatherParticles(dt);
@@ -647,11 +734,13 @@ window.AotaiMap3D = (function () {
 
     buildTerrain();
     buildRockScatter();
+    computeRouteBounds();
     buildTrail();
     buildMarkers();
     buildPlayer();
     buildWeatherFX();
     setWeatherVisual("clear");
+    bindZoomInput();
 
     const mid = worldPts[Math.floor(worldPts.length / 2)];
     camera.position.set(mid.x - 20, mid.y + 25, mid.z + 30);
@@ -682,6 +771,24 @@ window.AotaiMap3D = (function () {
     setWeatherVisual(weather);
   }
 
+  function bindZoomInput() {
+    if (!canvas) return;
+    canvas.addEventListener(
+      "wheel",
+      (e) => {
+        e.preventDefault();
+        adjustZoom(e.deltaY > 0 ? -0.05 : 0.05);
+      },
+      { passive: false }
+    );
+    const slider = document.getElementById("mapZoomSlider");
+    if (slider) {
+      slider.addEventListener("input", () => {
+        setZoom(Number(slider.value) / 100);
+      });
+    }
+  }
+
   function isReady() {
     return ready;
   }
@@ -690,6 +797,9 @@ window.AotaiMap3D = (function () {
     init,
     update,
     resize,
+    setZoom,
+    adjustZoom,
+    getZoom: () => mapZoom,
     isReady,
   };
 })();
