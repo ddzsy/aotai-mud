@@ -11,14 +11,17 @@ window.AotaiMap3D = (function () {
   let playerGlow = null;
   let markers = [];
   let playerIdx = 0;
-  let geoOrigin = { lon: 107.768, lat: 34.02 };
-  const WORLD_SCALE = 0.00115;
+  let geoOrigin = { lon: 107.7, lat: 33.48 };
+  const WORLD_SCALE = 0.00105;
+  let terrainMeta = null;
+  let elevData = null;
+  const Y_SCALE = 0.0105;
   let weatherId = "clear";
   let animId = 0;
   let camTarget = new THREE.Vector3();
   let camDesired = new THREE.Vector3();
   /** 0 = 全貌（最远） · 1 = 近景航拍（最近） */
-  let mapZoom = 0.52;
+  let mapZoom = 0.38;
   let routeBounds = null;
   let playerBeam = null;
   let playerRing = null;
@@ -45,11 +48,6 @@ window.AotaiMap3D = (function () {
     storm: { fog: 0.018, fogColor: 0x1a2030, light: 0.42, precip: 2200, kind: "rain", wind: 7, mist: 0.45 },
   };
 
-  function hash2(x, z) {
-    const s = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
-    return s - Math.floor(s);
-  }
-
   function lonLatToXZ(lon, lat) {
     const R = 6378137;
     const cos = Math.cos(geoOrigin.lat * Math.PI / 180);
@@ -58,166 +56,146 @@ window.AotaiMap3D = (function () {
     return { x, z };
   }
 
-  function sampleTrailAt(x, z) {
-    let bestD = 1e9;
-    let bestY = 0;
-    let tanX = 1;
-    let tanZ = 0;
-    for (let i = 0; i < worldPts.length - 1; i++) {
-      const a = worldPts[i];
-      const b = worldPts[i + 1];
-      const abx = b.x - a.x;
-      const abz = b.z - a.z;
-      const apx = x - a.x;
-      const apz = z - a.z;
-      const ab2 = abx * abx + abz * abz || 1;
-      let t = (apx * abx + apz * abz) / ab2;
-      t = Math.max(0, Math.min(1, t));
-      const px = a.x + abx * t;
-      const pz = a.z + abz * t;
-      const py = a.y + (b.y - a.y) * t;
-      const d = (x - px) * (x - px) + (z - pz) * (z - pz);
-      if (d < bestD) {
-        bestD = d;
-        bestY = py;
-        tanX = abx;
-        tanZ = abz;
+  function lonLatToUV(lon, lat) {
+    const m = terrainMeta;
+    const u = (lon - m.lon_min) / (m.lon_max - m.lon_min);
+    const v = (m.lat_max - lat) / (m.lat_max - m.lat_min);
+    return { u: Math.max(0, Math.min(1, u)), v: Math.max(0, Math.min(1, v)) };
+  }
+
+  function sampleElevMeters(lon, lat) {
+    if (!elevData || !terrainMeta) return 0;
+    const { u, v } = lonLatToUV(lon, lat);
+    const w = terrainMeta.width;
+    const h = terrainMeta.height;
+    const x = u * (w - 1);
+    const y = v * (h - 1);
+    const x0 = Math.floor(x);
+    const y0 = Math.floor(y);
+    const x1 = Math.min(w - 1, x0 + 1);
+    const y1 = Math.min(h - 1, y0 + 1);
+    const tx = x - x0;
+    const ty = y - y0;
+    const i00 = y0 * w + x0;
+    const i10 = y0 * w + x1;
+    const i01 = y1 * w + x0;
+    const i11 = y1 * w + x1;
+    const e =
+      elevData[i00] * (1 - tx) * (1 - ty) +
+      elevData[i10] * tx * (1 - ty) +
+      elevData[i01] * (1 - tx) * ty +
+      elevData[i11] * tx * ty;
+    return e;
+  }
+
+  function elevToWorldY(elevM) {
+    return (elevM - terrainMeta.elev_min) * Y_SCALE;
+  }
+
+  function loadTerrainData() {
+    return Promise.all([
+      fetch("terrain-meta.json").then((r) => r.json()),
+      new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = "terrain-heightmap.png";
+      }),
+    ]).then(([meta, img]) => {
+      terrainMeta = meta;
+      geoOrigin.lon = (meta.lon_min + meta.lon_max) / 2;
+      geoOrigin.lat = (meta.lat_min + meta.lat_max) / 2;
+      const c = document.createElement("canvas");
+      c.width = img.width;
+      c.height = img.height;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      const px = ctx.getImageData(0, 0, c.width, c.height).data;
+      elevData = new Float32Array(c.width * c.height);
+      const span = meta.elev_max - meta.elev_min;
+      for (let i = 0; i < elevData.length; i++) {
+        elevData[i] = meta.elev_min + (px[i * 4] / 255) * span;
       }
-    }
-    return { dist: Math.sqrt(bestD), y: bestY, tanX, tanZ };
-  }
-
-  function fbm(x, z) {
-    let v = 0;
-    let a = 1;
-    let f = 1;
-    for (let i = 0; i < 4; i++) {
-      v += a * (hash2(x * f, z * f) - 0.5);
-      a *= 0.5;
-      f *= 2.1;
-    }
-    return v;
-  }
-
-  function ridgeHeightAt(x, z) {
-    const s = sampleTrailAt(x, z);
-    const d = s.dist;
-    const ridge = Math.exp(-(d * d) / 55);
-    const mid = Math.exp(-(d * d) / 220) * 0.35;
-    const valley = (1 - ridge) * 3.8;
-    const n = fbm(x * 0.22, z * 0.22) * 1.6 * ridge;
-    const rock = Math.max(0, s.y - 8) * 0.04 * ridge;
-    return s.y * ridge + mid * s.y - valley + n + rock;
+    });
   }
 
   function buildWorldPoints(points) {
-    const altBase = 800;
-    if (points[0].lon != null) {
-      geoOrigin.lon = points[0].lon;
-      geoOrigin.lat = points[0].lat;
-    }
-    let heading = 0;
-    let lastX = 0;
-    let lastZ = 0;
-    return points.map((p, i) => {
-      let x;
-      let z;
-      if (p.lon != null && p.lat != null) {
-        const xz = lonLatToXZ(p.lon, p.lat);
-        x = xz.x;
-        z = xz.z;
-      } else if (i > 0) {
-        const prev = points[i - 1];
-        const dx = (p.x || 0) - (prev.x || 0);
-        const dy = (p.y || 0) - (prev.y || 0);
-        heading = Math.atan2(dx, -dy);
-        const dist = p.km_from_prev * 1.1;
-        x = lastX + Math.sin(heading) * dist;
-        z = lastZ + Math.cos(heading) * dist;
-      } else {
-        x = 0;
-        z = 0;
-      }
-      lastX = x;
-      lastZ = z;
-      return {
-        x,
-        y: (p.alt_m - altBase) * 0.038,
-        z,
-        meta: p,
-      };
+    return points.map((p) => {
+      const lon = p.lon;
+      const lat = p.lat;
+      const xz = lonLatToXZ(lon, lat);
+      const elev = sampleElevMeters(lon, lat);
+      const y = elevToWorldY(elev) + 0.35;
+      return { x: xz.x, z: xz.z, y, elev, meta: p };
     });
   }
 
-  function buildRockScatter() {
-    const geo = new THREE.DodecahedronGeometry(0.35, 0);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x6a6560, roughness: 0.95 });
-    for (let i = 0; i < 420; i++) {
-      const wp = worldPts[Math.floor(Math.random() * worldPts.length)];
-      const tan = trailTangent(Math.min(worldPts.length - 2, Math.floor(Math.random() * worldPts.length)));
-      const side = (Math.random() - 0.5) * 10;
-      const along = (Math.random() - 0.5) * 6;
-      const px = wp.x + tan.x * along + tan.z * side;
-      const pz = wp.z + tan.z * along - tan.x * side;
-      const h = ridgeHeightAt(px, pz);
-      if (h < wp.y * 0.55) continue;
-      const m = new THREE.Mesh(geo, mat);
-      const s = 0.6 + Math.random() * 1.8;
-      m.scale.set(s, s * 0.7, s);
-      m.position.set(px, h + 0.2, pz);
-      m.rotation.set(Math.random(), Math.random(), Math.random());
-      scene.add(m);
-    }
+  function vertexColorForElev(elevM) {
+    const t = (elevM - terrainMeta.elev_min) / (terrainMeta.elev_max - terrainMeta.elev_min);
+    const cLow = new THREE.Color(0x2d4a35);
+    const cMid = new THREE.Color(0x4a5c48);
+    const cHigh = new THREE.Color(0x6a6660);
+    const cRock = new THREE.Color(0x7a7470);
+    const cSnow = new THREE.Color(0xe8eef4);
+    const col = new THREE.Color();
+    if (t < 0.25) col.copy(cLow).lerp(cMid, t / 0.25);
+    else if (t < 0.55) col.copy(cMid).lerp(cHigh, (t - 0.25) / 0.3);
+    else if (t < 0.78) col.copy(cHigh).lerp(cRock, (t - 0.55) / 0.23);
+    else col.copy(cRock).lerp(cSnow, (t - 0.78) / 0.22);
+    return col;
   }
 
   function buildTerrain() {
-    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-    worldPts.forEach((p) => {
-      minX = Math.min(minX, p.x);
-      maxX = Math.max(maxX, p.x);
-      minZ = Math.min(minZ, p.z);
-      maxZ = Math.max(maxZ, p.z);
-    });
-    const cx = (minX + maxX) / 2;
-    const cz = (minZ + maxZ) / 2;
-    const span = Math.max(maxX - minX, maxZ - minZ) + 55;
-    const size = Math.max(180, span);
-    const seg = 128;
-    const geo = new THREE.PlaneGeometry(size, size, seg, seg);
+    const m = terrainMeta;
+    const segX = 220;
+    const segZ = 200;
+    const geo = new THREE.PlaneGeometry(1, 1, segX, segZ);
     geo.rotateX(-Math.PI / 2);
     const pos = geo.attributes.position;
     const colors = [];
-    const cLow = new THREE.Color(0x2a4a32);
-    const cMid = new THREE.Color(0x3d4f42);
-    const cHigh = new THREE.Color(0x5a5d62);
-    const cRock = new THREE.Color(0x6a6460);
-    const cSnow = new THREE.Color(0xd8e4ee);
+    const corners = [
+      lonLatToXZ(m.lon_min, m.lat_min),
+      lonLatToXZ(m.lon_max, m.lat_min),
+      lonLatToXZ(m.lon_min, m.lat_max),
+      lonLatToXZ(m.lon_max, m.lat_max),
+    ];
+    const minX = Math.min(corners[0].x, corners[1].x, corners[2].x, corners[3].x);
+    const maxX = Math.max(corners[0].x, corners[1].x, corners[2].x, corners[3].x);
+    const minZ = Math.min(corners[0].z, corners[1].z, corners[2].z, corners[3].z);
+    const maxZ = Math.max(corners[0].z, corners[1].z, corners[2].z, corners[3].z);
     for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i) + cx;
-      const z = pos.getZ(i) + cz;
-      const h = ridgeHeightAt(x, z);
-      const slope = ridgeHeightAt(x + 0.4, z) - ridgeHeightAt(x - 0.4, z);
-      pos.setY(i, h - 1.6 - Math.abs(slope) * 0.15);
-      const t = Math.min(1, Math.max(0, (h - 2) / 18));
-      const col = new THREE.Color();
-      if (t < 0.35) col.copy(cLow).lerp(cMid, t / 0.35);
-      else if (t < 0.72) col.copy(cMid).lerp(cHigh, (t - 0.35) / 0.37);
-      else if (t < 0.88) col.copy(cHigh).lerp(cRock, (t - 0.72) / 0.16);
-      else col.copy(cRock).lerp(cSnow, (t - 0.88) / 0.12);
+      const u = pos.getX(i) + 0.5;
+      const v = pos.getZ(i) + 0.5;
+      const lon = m.lon_min + u * (m.lon_max - m.lon_min);
+      const lat = m.lat_max - v * (m.lat_max - m.lat_min);
+      const elev = sampleElevMeters(lon, lat);
+      const xz = lonLatToXZ(lon, lat);
+      pos.setX(i, xz.x);
+      pos.setZ(i, xz.z);
+      pos.setY(i, elevToWorldY(elev));
+      const col = vertexColorForElev(elev);
       colors.push(col.r, col.g, col.b);
     }
     geo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
     geo.computeVertexNormals();
-    const mat = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.92,
-      metalness: 0.05,
-      flatShading: false,
-    });
-    terrain = new THREE.Mesh(geo, mat);
-    terrain.position.set(cx, 0, cz);
+    terrain = new THREE.Mesh(
+      geo,
+      new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.9,
+        metalness: 0.03,
+      })
+    );
     terrain.receiveShadow = true;
     scene.add(terrain);
+    routeBounds = {
+      cx: (minX + maxX) / 2,
+      cz: (minZ + maxZ) / 2,
+      cy: elevToWorldY((m.elev_min + m.elev_max) / 2),
+      span: Math.max(maxX - minX, maxZ - minZ),
+      maxY: elevToWorldY(m.elev_max),
+    };
   }
 
   function buildTrail() {
@@ -311,24 +289,6 @@ window.AotaiMap3D = (function () {
       scene.add(m);
       markers.push(m);
     });
-  }
-
-  function computeRouteBounds() {
-    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity, maxY = 0;
-    worldPts.forEach((p) => {
-      minX = Math.min(minX, p.x);
-      maxX = Math.max(maxX, p.x);
-      minZ = Math.min(minZ, p.z);
-      maxZ = Math.max(maxZ, p.z);
-      maxY = Math.max(maxY, p.y);
-    });
-    routeBounds = {
-      cx: (minX + maxX) / 2,
-      cz: (minZ + maxZ) / 2,
-      cy: maxY * 0.35,
-      span: Math.max(maxX - minX, maxZ - minZ),
-      maxY,
-    };
   }
 
   function buildPlayer() {
@@ -627,7 +587,6 @@ window.AotaiMap3D = (function () {
   }
 
   function updateCamera(dt) {
-    if (!routeBounds) computeRouteBounds();
     const pos = playerPos();
     const t = mapZoom;
     const b = routeBounds;
@@ -711,45 +670,53 @@ window.AotaiMap3D = (function () {
     renderer.render(scene, camera);
   }
 
+  let initStarted = false;
+
   function init(points) {
-    if (ready || !points || !points.length || typeof THREE === "undefined") return;
+    if (ready || initStarted || !points || !points.length || typeof THREE === "undefined") return;
     canvas = document.getElementById("map3d");
     if (!canvas) return;
+    initStarted = true;
 
-    worldPts = buildWorldPoints(points);
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0f1419);
+    loadTerrainData()
+      .then(() => {
+        worldPts = buildWorldPoints(points);
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0f1419);
 
-    camera = new THREE.PerspectiveCamera(50, 1, 0.1, 400);
-    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    renderer.shadowMap.enabled = true;
+        camera = new THREE.PerspectiveCamera(48, 1, 0.5, 900);
+        renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        renderer.shadowMap.enabled = true;
 
-    hemiLight = new THREE.HemisphereLight(0x9eb8d8, 0x1a2820, 0.55);
-    scene.add(hemiLight);
-    dirLight = new THREE.DirectionalLight(0xfff0dd, 1.1);
-    dirLight.position.set(40, 60, 25);
-    dirLight.castShadow = true;
-    scene.add(dirLight);
+        hemiLight = new THREE.HemisphereLight(0x9eb8d8, 0x1a2820, 0.55);
+        scene.add(hemiLight);
+        dirLight = new THREE.DirectionalLight(0xfff0dd, 1.1);
+        dirLight.position.set(40, 80, 25);
+        dirLight.castShadow = true;
+        scene.add(dirLight);
 
-    buildTerrain();
-    buildRockScatter();
-    computeRouteBounds();
-    buildTrail();
-    buildMarkers();
-    buildPlayer();
-    buildWeatherFX();
-    setWeatherVisual("clear");
-    bindZoomInput();
+        buildTerrain();
+        buildTrail();
+        buildMarkers();
+        buildPlayer();
+        buildWeatherFX();
+        setWeatherVisual("clear");
+        bindZoomInput();
 
-    const mid = worldPts[Math.floor(worldPts.length / 2)];
-    camera.position.set(mid.x - 20, mid.y + 25, mid.z + 30);
-    camera.lookAt(mid.x, mid.y, mid.z);
+        const mid = worldPts[Math.floor(worldPts.length / 2)];
+        camera.position.set(mid.x - 30, mid.y + 55, mid.z + 40);
+        camera.lookAt(mid.x, mid.y, mid.z);
 
-    clock = new THREE.Clock();
-    resize();
-    ready = true;
-    animate();
+        clock = new THREE.Clock();
+        resize();
+        ready = true;
+        animate();
+      })
+      .catch((err) => {
+        console.error("地形加载失败", err);
+        initStarted = false;
+      });
   }
 
   function resize() {
