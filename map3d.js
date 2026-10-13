@@ -673,29 +673,50 @@ window.AotaiMap3D = (function () {
     clampZoom(mapZoom + delta);
   }
 
+  /** 相对水平面的俯仰角（45° = 经典斜俯瞰，非正顶视） */
+  const CAMERA_PITCH = Math.PI / 4;
+  const OVERVIEW_AZIMUTH = new THREE.Vector3(0.78, 0, 0.62).normalize();
+
   function updateCamera(dt) {
     const pos = playerPos();
     const t = mapZoom;
     const b = routeBounds;
+    const tan = trailTangent(playerIdx);
 
     const lookAt = new THREE.Vector3(
       THREE.MathUtils.lerp(b.cx, pos.x, t),
-      THREE.MathUtils.lerp(b.cy, pos.y + 1.5, t),
+      THREE.MathUtils.lerp(b.cy, pos.y + 2.5, t),
       THREE.MathUtils.lerp(b.cz, pos.z, t)
     );
 
-    const fullH = b.span * 0.72 + b.maxY * 0.9 + 18;
-    const nearH = 22 + b.maxY * 0.08;
-    const height = THREE.MathUtils.lerp(fullH, nearH, t);
-    const tilt = THREE.MathUtils.lerp(b.span * 0.22, 10, t);
-    const side = THREE.MathUtils.lerp(b.span * 0.18, 11, t);
+    const distFar = b.span * 0.92 + 26;
+    const distNear = 36;
+    const dist = THREE.MathUtils.lerp(distFar, distNear, Math.pow(t, 0.9));
+    const horiz = dist * Math.cos(CAMERA_PITCH);
+    const vert = dist * Math.sin(CAMERA_PITCH);
 
-    camDesired.set(lookAt.x + side, lookAt.y + height, lookAt.z + tilt);
+    const back = new THREE.Vector3(-tan.x, 0, -tan.z);
+    if (back.lengthSq() < 1e-6) back.set(0, 0, 1);
+    back.normalize();
+    const side = new THREE.Vector3(-tan.z, 0, tan.x).normalize();
+    const trailView = back
+      .clone()
+      .multiplyScalar(0.62)
+      .add(side.clone().multiplyScalar(0.48))
+      .normalize();
+    const overviewWeight = 1 - THREE.MathUtils.smoothstep(t, 0.12, 0.58);
+    const viewDir = trailView.clone().lerp(OVERVIEW_AZIMUTH, overviewWeight).normalize();
+
+    camDesired.set(
+      lookAt.x + viewDir.x * horiz,
+      lookAt.y + vert,
+      lookAt.z + viewDir.z * horiz
+    );
     camTarget.copy(lookAt);
 
     const lerp = 1 - Math.pow(0.001, dt || 0.016);
     camera.position.lerp(camDesired, lerp * 0.16);
-    camera.fov = THREE.MathUtils.lerp(50, 46, t);
+    camera.fov = THREE.MathUtils.lerp(52, 48, t);
     camera.updateProjectionMatrix();
     camera.lookAt(camTarget);
 
@@ -791,9 +812,9 @@ window.AotaiMap3D = (function () {
         setWeatherVisual("clear");
         bindZoomInput();
 
-        const mid = worldPts[Math.floor(worldPts.length / 2)];
-        camera.position.set(mid.x - 30, mid.y + 55, mid.z + 40);
-        camera.lookAt(mid.x, mid.y, mid.z);
+        updateCamera(1);
+        camera.position.copy(camDesired);
+        camera.lookAt(camTarget);
 
         clock = new THREE.Clock();
         resize();
