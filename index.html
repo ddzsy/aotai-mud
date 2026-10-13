@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>鳌太穿越 · 极限省钱</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #1a222c;
+    --line: #2a3644;
+    --text: #e7eef6;
+    --muted: #8b9aab;
+    --accent: #e8a54b;
+    --good: #5dbe8a;
+    --bad: #e06c75;
+    --water: #5dade2;
+    --camp: #c9a66b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text); height: 100vh; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; border-bottom: 1px solid var(--line); background: #121820;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .02em; }
+  header .meta { color: var(--muted); font-size: 13px; display: flex; gap: 14px; flex-wrap: wrap; }
+  header .meta b { color: var(--accent); font-weight: 600; }
+  .layout {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    grid-template-rows: 1fr;
+    height: calc(100vh - 48px);
+    height: calc(100dvh - 48px);
+  }
+  .map-pane { border-right: 1px solid var(--line); }
+  @media (max-width: 900px) {
+    .layout {
+      grid-template-columns: 1fr;
+      grid-template-rows: minmax(34vh, 40vh) 1fr;
+    }
+    .map-pane {
+      border-right: none;
+      border-bottom: 1px solid var(--line);
+    }
+    header {
+      padding: 8px 10px;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    header h1 { font-size: 14px; }
+    header .meta { font-size: 12px; gap: 8px; }
+    #log { padding: 10px 12px; font-size: 13px; }
+    .actions { padding: 8px; gap: 6px; }
+    button { padding: 10px 12px; font-size: 13px; min-height: 40px; }
+    .map-legend { font-size: 10px; }
+  }
+  .map-pane { position: relative; background: #0c1015; min-height: 0; }
+  .map-pane svg { width: 100%; height: 100%; display: block; }
+  .map-legend {
+    position: absolute; left: 10px; bottom: 10px; font-size: 11px; color: var(--muted);
+    background: rgba(0,0,0,.45); padding: 6px 8px; border-radius: 6px; line-height: 1.5;
+  }
+  .game-pane { display: flex; flex-direction: column; min-height: 0; }
+  #log {
+    flex: 1; overflow-y: auto; padding: 14px 16px; font-size: 14px; line-height: 1.55;
+  }
+  #log .sys { color: var(--muted); }
+  #log .evt { color: var(--accent); }
+  #log .bad { color: var(--bad); }
+  #log .good { color: var(--good); }
+  #log p { margin: 0 0 10px; }
+  .actions {
+    border-top: 1px solid var(--line); padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 8px;
+    background: var(--panel);
+  }
+  button {
+    background: #243040; color: var(--text); border: 1px solid #334556; border-radius: 8px;
+    padding: 8px 12px; font-size: 13px; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  button.primary { background: #3a2e1a; border-color: #6b5228; color: var(--accent); }
+  button.danger { background: #2a1a1c; border-color: #5a3036; color: #f0a0a8; }
+  .ach-toast {
+    position: fixed; right: 16px; top: 56px; background: #1e2a20; border: 1px solid #3d6b4f;
+    color: var(--good); padding: 10px 14px; border-radius: 8px; font-size: 13px;
+    opacity: 0; transform: translateY(-6px); transition: .25s; pointer-events: none; z-index: 9;
+  }
+  .ach-toast.show { opacity: 1; transform: none; }
+  .modal-bg {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 20;
+    align-items: center; justify-content: center;
+  }
+  .modal-bg.show { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 20px; width: min(420px, 92vw); max-height: 80vh; overflow: auto;
+  }
+  .modal h2 { margin: 0 0 10px; font-size: 18px; }
+  .modal ul { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+  .modal li.got { color: var(--good); }
+</style>
+</head>
+<body>
+<header>
+  <h1>鳌太穿越 · 极限省钱</h1>
+  <div class="meta">
+    <span>现金 <b id="mMoney">—</b></span>
+    <span>体力 <b id="mStam">—</b></span>
+    <span>干粮 <b id="mFood">—</b></span>
+    <span>水 <b id="mWater">—</b></span>
+    <span>天气 <b id="mWeather">—</b></span>
+    <span>日 <b id="mDay">—</b></span>
+  </div>
+<input type="file" id="bgmFile" accept="audio/*" style="display:none" />
+</header>
+<div class="layout">
+  <div class="map-pane">
+    <svg id="map" viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="map-legend">● 当前位置 · ○ 营地 · ◇ 水源 · 虚线=下撤口<br/>示意轨迹（非精确测绘）</div>
+  </div>
+  <div class="game-pane">
+    <div id="log"></div>
+    <div class="actions" id="actions"></div>
+  </div>
+</div>
+<div class="ach-toast" id="toast"></div>
+<div class="modal-bg" id="endModal">
+  <div class="modal">
+    <h2 id="endTitle"></h2>
+    <p id="endBody" style="font-size:14px;line-height:1.5"></p>
+    <ul id="endAchs"></ul>
+    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="primary" onclick="location.reload()">再来一局</button>
+      <button onclick="showAchievements()">成就一览</button>
+    </div>
+  </div>
+</div>
+<div class="modal-bg" id="achModal">
+  <div class="modal">
+    <h2>成就</h2>
+    <ul id="achList"></ul>
+    <div style="margin-top:14px"><button onclick="document.getElementById('achModal').classList.remove('show')">关闭</button></div>
+  </div>
+</div>
+<script>
+const DATA = {
+  "points": [
+    {
+      "id": 1,
+      "name": "塘口村",
+      "alt_m": 1740,
+      "km_from_prev": 0,
+      "hours_base": 0,
+      "camp": false,
+      "water": true,
+      "supply": true,
+      "price_food": 25,
+      "price_water": 5,
+      "price_rest": 0,
+      "weather_risk": 1,
+      "notes": "起点，可买干粮/水",
+      "x": 40.0,
+      "y": 262.3,
+      "retreat": null
+    },
+    {
+      "id": 2,
+      "name": "药棚",
+      "alt_m": 2805,
+      "km_from_prev": 6.5,
+      "hours_base": 3.5,
+      "camp": false,
+      "water": false,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 2,
+      "notes": "陡升段，天气差易耗体力",
+      "x": 66.3,
+      "y": 175.2,
+      "retreat": null
+    },
+    {
+      "id": 3,
+      "name": "火烧坡",
+      "alt_m": 2820,
+      "km_from_prev": 1.5,
+      "hours_base": 0.8,
+      "camp": false,
+      "water": true,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 2,
+      "notes": "季节性流水",
+      "x": 92.6,
+      "y": 184.5,
+      "retreat": null
+    },
+    {
+      "id": 4,
+      "name": "2900营地",
+      "alt_m": 2990,
+      "km_from_prev": 2.0,
+      "hours_base": 1.0,
+      "camp": true,
+      "water": true,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": 0,
+      "weather_risk": 2,
+      "notes": "常用首夜营，免费扎营",
+      "x": 118.9,
+      "y": 176.4,
+      "retreat": null
+    },
+    {
+      "id": 5,
+      "name": "盆景园",
+      "alt_m": 3250,
+      "km_from_prev": 4.5,
+      "hours_base": 2.5,
+      "camp": true,
+      "water": true,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": 0,
+      "weather_risk": 3,
+      "notes": "季节性泉水，可下撤苗圃",
+      "x": 145.1,
+      "y": 156.0,
+      "retreat": {
+        "id": "r_penjing",
+        "name": "盆景园→苗圃下撤",
+        "cost": 120,
+        "hours": 4
+      }
+    },
+    {
+      "id": 6,
+      "name": "白起庙",
+      "alt_m": 3300,
+      "km_from_prev": 2.0,
+      "hours_base": 1.0,
+      "camp": false,
+      "water": false,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 3,
+      "notes": "石海前过渡点",
+      "x": 171.4,
+      "y": 150.8,
+      "retreat": null
+    },
+    {
+      "id": 7,
+      "name": "导航架",
+      "alt_m": 3475,
+      "km_from_prev": 3.0,
+      "hours_base": 1.8,
+      "camp": false,
+      "water": false,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 4,
+      "notes": "梁顶风大雾浓，可下撤青峰峡",
+      "x": 197.7,
+      "y": 129.5,
+      "retreat": {
+        "id": "r_daohang",
+        "name": "导航架→青峰峡下撤",
+        "cost": 150,
+        "hours": 5
+      }
+    },
+    {
+      "id": 8,
+      "name": "西跑马梁",
+      "alt_m": 3370,
+      "km_from_prev": 3.5,
+      "hours_base": 1.5,
+      "camp": false,
+      "water": false,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 4,
+      "notes": "长梁暴露，雷雨危险高",
+      "x": 224.0,
+      "y": 130.7,
+      "retreat": null
+    },
+    {
+      "id": 9,
+      "name": "药王庙",
+      "alt_m": 3360,
+      "km_from_prev": 2.5,
+      "hours_base": 1.2,
+      "camp": true,
+      "water": true,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": 0,
+      "weather_risk": 3,
+      "notes": "有水源，可过夜",
+      "x": 250.3,
+      "y": 120.4,
+      "retreat": null
+    },
+    {
+      "id": 10,
+      "name": "麦秸岭",
+      "alt_m": 3500,
+      "km_from_prev": 3.0,
+      "hours_base": 1.8,
+      "camp": false,
+      "water": false,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 4,
+      "notes": "垭口风口",
+      "x": 276.6,
+      "y": 94.9,
+      "retreat": null
+    },
+    {
+      "id": 11,
+      "name": "水窝子营地",
+      "alt_m": 3150,
+      "km_from_prev": 4.0,
+      "hours_base": 2.2,
+      "camp": true,
+      "water": true,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": 0,
+      "weather_risk": 2,
+      "notes": "流动泉水，可下撤魁星楼",
+      "x": 302.9,
+      "y": 115.5,
+      "retreat": {
+        "id": "r_shuiwo",
+        "name": "水窝子→魁星楼下撤",
+        "cost": 100,
+        "hours": 4
+      }
+    },
+    {
+      "id": 12,
+      "name": "飞机梁",
+      "alt_m": 3480,
+      "km_from_prev": 5.0,
+      "hours_base": 3.0,
+      "camp": false,
+      "water": false,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 4,
+      "notes": "爬升大，雾中易迷路",
+      "x": 329.1,
+      "y": 74.6,
+      "retreat": null
+    },
+    {
+      "id": 13,
+      "name": "梁1",
+      "alt_m": 3450,
+      "km_from_prev": 1.5,
+      "hours_base": 0.9,
+      "camp": false,
+      "water": false,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 4,
+      "notes": "三梁连续",
+      "x": 355.4,
+      "y": 70.5,
+      "retreat": null
+    },
+    {
+      "id": 14,
+      "name": "梁2",
+      "alt_m": 3480,
+      "km_from_prev": 1.2,
+      "hours_base": 0.8,
+      "camp": false,
+      "water": false,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 4,
+      "notes": "三梁连续",
+      "x": 381.7,
+      "y": 64.9,
+      "retreat": null
+    },
+    {
+      "id": 15,
+      "name": "梁3",
+      "alt_m": 3500,
+      "km_from_prev": 1.2,
+      "hours_base": 0.8,
+      "camp": false,
+      "water": false,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 4,
+      "notes": "三梁连续",
+      "x": 408.0,
+      "y": 64.7,
+      "retreat": null
+    },
+    {
+      "id": 16,
+      "name": "2800营地",
+      "alt_m": 2920,
+      "km_from_prev": 4.0,
+      "hours_base": 2.5,
+      "camp": true,
+      "water": true,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": 0,
+      "weather_risk": 2,
+      "notes": "小石河水源，可下撤核桃坪",
+      "x": 434.3,
+      "y": 124.8,
+      "retreat": {
+        "id": "r_2800",
+        "name": "2800→核桃坪下撤",
+        "cost": 110,
+        "hours": 4.5
+      }
+    },
+    {
+      "id": 17,
+      "name": "南天门",
+      "alt_m": 3350,
+      "km_from_prev": 3.5,
+      "hours_base": 2.0,
+      "camp": true,
+      "water": true,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": 0,
+      "weather_risk": 3,
+      "notes": "草甸营，季节性水",
+      "x": 460.6,
+      "y": 94.0,
+      "retreat": null
+    },
+    {
+      "id": 18,
+      "name": "金字塔",
+      "alt_m": 3400,
+      "km_from_prev": 1.5,
+      "hours_base": 0.9,
+      "camp": false,
+      "water": false,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 3,
+      "notes": "地标垭口",
+      "x": 486.9,
+      "y": 101.1,
+      "retreat": null
+    },
+    {
+      "id": 19,
+      "name": "塔1",
+      "alt_m": 3450,
+      "km_from_prev": 1.5,
+      "hours_base": 1.0,
+      "camp": false,
+      "water": false,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 4,
+      "notes": "三塔连续",
+      "x": 513.1,
+      "y": 108.9,
+      "retreat": null
+    },
+    {
+      "id": 20,
+      "name": "塔2",
+      "alt_m": 3480,
+      "km_from_prev": 1.2,
+      "hours_base": 0.9,
+      "camp": false,
+      "water": false,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 4,
+      "notes": "三塔连续",
+      "x": 539.4,
+      "y": 117.8,
+      "retreat": null
+    },
+    {
+      "id": 21,
+      "name": "塔3",
+      "alt_m": 3500,
+      "km_from_prev": 1.2,
+      "hours_base": 0.9,
+      "camp": false,
+      "water": false,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 4,
+      "notes": "三塔连续",
+      "x": 565.7,
+      "y": 125.4,
+      "retreat": null
+    },
+    {
+      "id": 22,
+      "name": "西塬营地",
+      "alt_m": 3180,
+      "km_from_prev": 3.0,
+      "hours_base": 1.8,
+      "camp": true,
+      "water": true,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": 0,
+      "weather_risk": 3,
+      "notes": "季节性水",
+      "x": 592.0,
+      "y": 161.2,
+      "retreat": null
+    },
+    {
+      "id": 23,
+      "name": "九重石海",
+      "alt_m": 3520,
+      "km_from_prev": 4.5,
+      "hours_base": 3.0,
+      "camp": false,
+      "water": false,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 5,
+      "notes": "大太白梁，石海难走，恶劣天气风险最高",
+      "x": 618.3,
+      "y": 131.1,
+      "retreat": null
+    },
+    {
+      "id": 24,
+      "name": "大石河营地",
+      "alt_m": 3170,
+      "km_from_prev": 3.5,
+      "hours_base": 2.0,
+      "camp": true,
+      "water": true,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": 0,
+      "weather_risk": 2,
+      "notes": "水源充足",
+      "x": 644.6,
+      "y": 161.0,
+      "retreat": null
+    },
+    {
+      "id": 25,
+      "name": "东塬营地",
+      "alt_m": 3150,
+      "km_from_prev": 3.0,
+      "hours_base": 1.5,
+      "camp": true,
+      "water": false,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": 0,
+      "weather_risk": 3,
+      "notes": "可下撤铁甲树",
+      "x": 670.9,
+      "y": 156.0,
+      "retreat": {
+        "id": "r_dongyuan",
+        "name": "东塬→铁甲树下撤",
+        "cost": 130,
+        "hours": 5
+      }
+    },
+    {
+      "id": 26,
+      "name": "万仙阵",
+      "alt_m": 3560,
+      "km_from_prev": 4.0,
+      "hours_base": 2.5,
+      "camp": false,
+      "water": false,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 5,
+      "notes": "怪石阵，雾中易偏航",
+      "x": 697.1,
+      "y": 107.6,
+      "retreat": null
+    },
+    {
+      "id": 27,
+      "name": "雷公庙",
+      "alt_m": 3530,
+      "km_from_prev": 2.0,
+      "hours_base": 1.0,
+      "camp": false,
+      "water": false,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 5,
+      "notes": "雷暴高发区",
+      "x": 723.4,
+      "y": 98.3,
+      "retreat": null
+    },
+    {
+      "id": 28,
+      "name": "东跑马梁",
+      "alt_m": 3510,
+      "km_from_prev": 4.0,
+      "hours_base": 2.0,
+      "camp": false,
+      "water": false,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 5,
+      "notes": "无水长梁，强风",
+      "x": 749.7,
+      "y": 87.8,
+      "retreat": null
+    },
+    {
+      "id": 29,
+      "name": "拔仙台",
+      "alt_m": 3767,
+      "km_from_prev": 3.5,
+      "hours_base": 2.2,
+      "camp": false,
+      "water": false,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 5,
+      "notes": "最高点，天气突变常见",
+      "x": 776.0,
+      "y": 52.5,
+      "retreat": null
+    },
+    {
+      "id": 30,
+      "name": "大爷海",
+      "alt_m": 3590,
+      "km_from_prev": 1.5,
+      "hours_base": 0.8,
+      "camp": true,
+      "water": true,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": 0,
+      "weather_risk": 3,
+      "notes": "天池水源",
+      "x": 802.3,
+      "y": 60.4,
+      "retreat": null
+    },
+    {
+      "id": 31,
+      "name": "文公庙",
+      "alt_m": 3495,
+      "km_from_prev": 2.5,
+      "hours_base": 1.2,
+      "camp": true,
+      "water": true,
+      "supply": true,
+      "price_food": 45,
+      "price_water": 10,
+      "price_rest": 80,
+      "weather_risk": 2,
+      "notes": "山庙补给/过夜（贵），可下撤景区",
+      "x": 828.6,
+      "y": 64.3,
+      "retreat": {
+        "id": "r_wengong",
+        "name": "文公庙→太白景区下撤",
+        "cost": 80,
+        "hours": 3
+      }
+    },
+    {
+      "id": 32,
+      "name": "放羊寺",
+      "alt_m": 3100,
+      "km_from_prev": 4.0,
+      "hours_base": 2.0,
+      "camp": true,
+      "water": true,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": 0,
+      "weather_risk": 2,
+      "notes": "季节性水",
+      "x": 854.9,
+      "y": 100.7,
+      "retreat": null
+    },
+    {
+      "id": 33,
+      "name": "明星寺",
+      "alt_m": 2950,
+      "km_from_prev": 2.5,
+      "hours_base": 1.2,
+      "camp": true,
+      "water": true,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": 0,
+      "weather_risk": 2,
+      "notes": "季节性水",
+      "x": 881.1,
+      "y": 118.5,
+      "retreat": null
+    },
+    {
+      "id": 34,
+      "name": "平安寺",
+      "alt_m": 2780,
+      "km_from_prev": 2.5,
+      "hours_base": 1.2,
+      "camp": true,
+      "water": true,
+      "supply": true,
+      "price_food": 35,
+      "price_water": 8,
+      "price_rest": 60,
+      "weather_risk": 1,
+      "notes": "下山段补给",
+      "x": 907.4,
+      "y": 142.2,
+      "retreat": null
+    },
+    {
+      "id": 35,
+      "name": "羊皮沟",
+      "alt_m": 1000,
+      "km_from_prev": 8.0,
+      "hours_base": 3.5,
+      "camp": false,
+      "water": true,
+      "supply": false,
+      "price_food": null,
+      "price_water": null,
+      "price_rest": null,
+      "weather_risk": 1,
+      "notes": "出山沟",
+      "x": 933.7,
+      "y": 319.0,
+      "retreat": null
+    },
+    {
+      "id": 36,
+      "name": "鹦鸽镇",
+      "alt_m": 800,
+      "km_from_prev": 3.0,
+      "hours_base": 1.0,
+      "camp": false,
+      "water": true,
+      "supply": true,
+      "price_food": 20,
+      "price_water": 3,
+      "price_rest": 0,
+      "weather_risk": 1,
+      "notes": "终点，结算剩余现金",
+      "x": 960.0,
+      "y": 350.0,
+      "retreat": null
+    }
+  ],
+  "retreats": {
+    "5": {
+      "id": "r_penjing",
+      "name": "盆景园→苗圃下撤",
+      "cost": 120,
+      "hours": 4
+    },
+    "7": {
+      "id": "r_daohang",
+      "name": "导航架→青峰峡下撤",
+      "cost": 150,
+      "hours": 5
+    },
+    "11": {
+      "id": "r_shuiwo",
+      "name": "水窝子→魁星楼下撤",
+      "cost": 100,
+      "hours": 4
+    },
+    "16": {
+      "id": "r_2800",
+      "name": "2800→核桃坪下撤",
+      "cost": 110,
+      "hours": 4.5
+    },
+    "25": {
+      "id": "r_dongyuan",
+      "name": "东塬→铁甲树下撤",
+      "cost": 130,
+      "hours": 5
+    },
+    "31": {
+      "id": "r_wengong",
+      "name": "文公庙→太白景区下撤",
+      "cost": 80,
+      "hours": 3
+    }
+  }
+};
+
+const WEATHERS = [
+  { id: "clear", name: "晴", mult: 1, stam: 0 },
+  { id: "cloud", name: "多云", mult: 1.05, stam: 1 },
+  { id: "fog", name: "浓雾", mult: 1.25, stam: 4 },
+  { id: "rain", name: "雨", mult: 1.35, stam: 6 },
+  { id: "storm", name: "风暴", mult: 1.7, stam: 12 },
+];
+
+const ACH_DEFS = {
+  first_step: { title: "踏上鳌山", desc: "离开塘口村" },
+  peak: { title: "站上拔仙台", desc: "抵达太白最高点" },
+  clear_cheap: { title: "极限省钱通关", desc: "正向抵达鹦鸽且剩余≥400" },
+  clear_any: { title: "走完主线", desc: "正向抵达鹦鸽镇" },
+  retreat_ok: { title: "明智下撤", desc: "任意下撤口安全出山（Good Ending）" },
+  retreat_explorer: { title: "下撤拓荒者", desc: "同一存档发现全部 6 条下撤路径" },
+  storm_survive: { title: "风暴行者", desc: "在风暴天气下成功移动一段" },
+  no_buy: { title: "苦行僧", desc: "全程未在补给点花钱并通关或下撤成功" },
+  camp_10: { title: "梁上露宿", desc: "累计扎营 5 次" },
+};
+
+let S;
+
+function loadAch() {
+  try { return JSON.parse(localStorage.getItem("aotai_achs") || "{}"); } catch { return {}; }
+}
+function saveAch(a) { localStorage.setItem("aotai_achs", JSON.stringify(a)); }
+
+function unlock(id) {
+  const a = loadAch();
+  if (a[id]) return;
+  a[id] = true;
+  saveAch(a);
+  S.unlockedThisRun.add(id);
+  const t = document.getElementById("toast");
+  t.textContent = "成就：" + ACH_DEFS[id].title;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+function log(html, cls="") {
+  const el = document.getElementById("log");
+  const p = document.createElement("p");
+  if (cls) p.className = cls;
+  p.innerHTML = html;
+  el.appendChild(p);
+  el.scrollTop = el.scrollHeight;
+}
+
+function weatherPick(risk) {
+  // higher point risk → worse weather more likely
+  const r = Math.random() * 10 + risk;
+  if (r > 12) return WEATHERS[4];
+  if (r > 9.5) return WEATHERS[3];
+  if (r > 7) return WEATHERS[2];
+  if (r > 4) return WEATHERS[1];
+  return WEATHERS[0];
+}
+
+function cur() { return DATA.points[S.idx]; }
+
+function refreshMeta() {
+  document.getElementById("mMoney").textContent = "¥" + S.money;
+  document.getElementById("mStam").textContent = S.stam + "/100";
+  document.getElementById("mFood").textContent = S.food;
+  document.getElementById("mWater").textContent = S.water;
+  document.getElementById("mWeather").textContent = S.weather.name;
+  document.getElementById("mDay").textContent = S.day + " · " + S.hour.toFixed(1) + "h";
+}
+
+function drawMap() {
+  const svg = document.getElementById("map");
+  const pts = DATA.points;
+  let path = "";
+  pts.forEach((p, i) => { path += (i ? " L " : "M ") + p.x + " " + p.y; });
+  let marks = "";
+  // retreat dashed stubs
+  pts.forEach(p => {
+    if (p.retreat) {
+      const tx = p.x, ty = Math.min(680, p.y + 55);
+      marks += `<line x1="${p.x}" y1="${p.y}" x2="${tx}" y2="${ty}" stroke="#6b5228" stroke-width="1.5" stroke-dasharray="4 3" opacity=".7"/>`;
+      marks += `<text x="${tx}" y="${ty+12}" fill="#8b9aab" font-size="9" text-anchor="middle">撤</text>`;
+    }
+  });
+  pts.forEach((p, i) => {
+    const visited = i <= S.idx;
+    const here = i === S.idx;
+    let r = here ? 7 : (p.camp ? 5 : 3.5);
+    let fill = here ? "#e8a54b" : (visited ? "#5dbe8a" : "#4a5562");
+    if (p.water && !here) marks += `<polygon points="${p.x},${p.y-6} ${p.x+5},${p.y+3} ${p.x-5},${p.y+3}" fill="#5dade2" opacity=".85"/>`;
+    else marks += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${fill}" stroke="#0f1419" stroke-width="1"/>`;
+    if (p.camp && !here) marks += `<circle cx="${p.x}" cy="${p.y}" r="7" fill="none" stroke="#8b9aab" stroke-width="1" opacity=".5"/>`;
+    if (here || p.id === 1 || p.id === 29 || p.id === 36 || (p.supply && i > S.idx - 2 && i < S.idx + 3)) {
+      marks += `<text x="${p.x}" y="${p.y - 10}" fill="#e7eef6" font-size="10" text-anchor="middle">${p.name}</text>`;
+    }
+  });
+  svg.innerHTML = `
+    <defs>
+      <linearGradient id="g" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="#1a3040"/><stop offset="100%" stop-color="#2a2030"/>
+      </linearGradient>
+    </defs>
+    <rect width="1000" height="700" fill="url(#g)"/>
+    <text x="40" y="28" fill="#8b9aab" font-size="12">塘口 →</text>
+    <text x="920" y="28" fill="#8b9aab" font-size="12" text-anchor="end">→ 鹦鸽</text>
+    <path d="${path}" fill="none" stroke="#6d8499" stroke-width="2.5" opacity=".85"/>
+    <path d="${path}" fill="none" stroke="#e8a54b" stroke-width="2.5" stroke-dasharray="1000" stroke-dashoffset="${1000 - (S.idx/(pts.length-1))*1000}" opacity=".5"/>
+    ${marks}
+  `;
+}
+
+function renderActions() {
+  const box = document.getElementById("actions");
+  if (S.ended) { box.innerHTML = `<button class="primary" onclick="location.reload()">再来一局</button><button onclick="showAchievements()">成就</button>`; return; }
+  const p = cur();
+  const btns = [];
+  if (S.idx < DATA.points.length - 1) btns.push(`<button class="primary" onclick="goNext()">前进</button>`);
+  if (p.camp) btns.push(`<button onclick="camp()">扎营过夜</button>`);
+  if (p.water) btns.push(`<button onclick="fillWater()">取水</button>`);
+  if (p.supply) {
+    if (p.price_food != null) btns.push(`<button onclick="buy('food')">买干粮 ¥${p.price_food}</button>`);
+    if (p.price_water != null) btns.push(`<button onclick="buy('water')">买水 ¥${p.price_water}</button>`);
+    if (p.price_rest) btns.push(`<button onclick="buy('rest')">住店过夜 ¥${p.price_rest}</button>`);
+  }
+  if (p.retreat) btns.push(`<button class="danger" onclick="doRetreat()">下撤：${p.retreat.name}</button>`);
+  btns.push(`<button onclick="showAchievements()">成就</button>`);
+  btns.push(`<button onclick="toggleBgm()">${S.bgmOn ? "关闭BGM" : "BGM: Ridge Tension"}</button>`);
+  btns.push(`<button onclick="pickBgmFile()">选择BGM文件</button>`);
+  box.innerHTML = btns.join("");
+}
+
+function tickNeeds(hours) {
+  // consume roughly 1 food / 4h, 1 water / 3h
+  S.foodNeed += hours / 4;
+  S.waterNeed += hours / 3;
+  while (S.foodNeed >= 1) {
+    S.foodNeed -= 1;
+    if (S.food > 0) S.food--; else { S.stam -= 15; log("没有干粮，体力骤降。", "bad"); }
+  }
+  while (S.waterNeed >= 1) {
+    S.waterNeed -= 1;
+    if (S.water > 0) S.water--; else { S.stam -= 20; log("严重缺水！", "bad"); }
+  }
+  S.hour += hours;
+  while (S.hour >= 24) { S.hour -= 24; S.day++; }
+}
+
+function checkFail() {
+  if (S.stam <= 0) {
+    endGame(false, "体力耗尽", "你倒在梁上。这一次没有走到终点——但活着下撤也是胜利，下次早作决定。");
+    return true;
+  }
+  return false;
+}
+
+function goNext() {
+  const from = cur();
+  const to = DATA.points[S.idx + 1];
+  S.weather = weatherPick(Math.max(from.weather_risk, to.weather_risk));
+  const hours = to.hours_base * S.weather.mult;
+  const stamCost = Math.round(8 + to.weather_risk * 2 + S.weather.stam + (S.food < 2 ? 3 : 0));
+  S.stam = Math.max(0, S.stam - stamCost);
+  tickNeeds(hours);
+  S.idx++;
+  if (S.idx === 1) unlock("first_step");
+  if (to.id === 29) unlock("peak");
+  if (S.weather.id === "storm") unlock("storm_survive");
+  log(`你从「${from.name}」走向「${to.name}」（${to.km_from_prev} km，约 ${hours.toFixed(1)} h）。天气：${S.weather.name}。体力 -${stamCost}。`, "evt");
+  if (to.notes) log(to.notes, "sys");
+  if (checkFail()) return;
+  if (to.id === 36) {
+    if (!S.spentAny) unlock("no_buy");
+    unlock("clear_any");
+    if (S.money >= 400) unlock("clear_cheap");
+    endGame(true, "主线通关 · Good Ending", `抵达鹦鸽镇！剩余现金 ¥${S.money}。省钱排名看剩余现金——你花得越少越强。`);
+    return;
+  }
+  refreshMeta(); drawMap(); renderActions();
+}
+
+function camp() {
+  const p = cur();
+  if (!p.camp) return;
+  S.stam = Math.min(100, S.stam + 35);
+  tickNeeds(8);
+  S.camps++;
+  if (S.camps >= 5) unlock("camp_10");
+  S.weather = weatherPick(p.weather_risk);
+  log(`在「${p.name}」扎营过夜。体力恢复，新的一天天气：${S.weather.name}。`, "good");
+  if (checkFail()) return;
+  refreshMeta(); renderActions();
+}
+
+function fillWater() {
+  if (!cur().water) return;
+  S.water = Math.min(8, S.water + 3);
+  log("取到干净的山泉水。饮水 +3。", "good");
+  refreshMeta(); renderActions();
+}
+
+function buy( wha) {
+  const p = cur();
+  if (!p.supply) return;
+  if (wha === "food") {
+    if (S.money < p.price_food) return log("钱不够。", "bad");
+    S.money -= p.price_food; S.food += 2; S.spentAny = true;
+    log(`买了干粮。-¥${p.price_food}，干粮 +2。`);
+  } else if (wha === "water") {
+    if (S.money < p.price_water) return log("钱不够。", "bad");
+    S.money -= p.price_water; S.water += 2; S.spentAny = true;
+    log(`买了瓶装水。-¥${p.price_water}，水 +2。`);
+  } else if (wha === "rest") {
+    if (S.money < p.price_rest) return log("钱不够。", "bad");
+    S.money -= p.price_rest; S.stam = Math.min(100, S.stam + 50); S.spentAny = true;
+    tickNeeds(8);
+    log(`住店休整。-¥${p.price_rest}，体力大恢复。`, "good");
+  }
+  refreshMeta(); renderActions();
+}
+
+function doRetreat() {
+  const p = cur();
+  if (!p.retreat) return;
+  const r = p.retreat;
+  if (S.money < r.cost) {
+    log(`下撤需要包车/向导费约 ¥${r.cost}，现金不足。`, "bad");
+    return;
+  }
+  S.money -= r.cost;
+  S.spentAny = true;
+  tickNeeds(r.hours);
+  S.discoveredRetreats.add(r.id);
+  // persist discovered retreats globally for explorer ach
+  const found = JSON.parse(localStorage.getItem("aotai_retreats") || "[]");
+  if (!found.includes(r.id)) { found.push(r.id); localStorage.setItem("aotai_retreats", JSON.stringify(found)); }
+  if (found.length >= 6) unlock("retreat_explorer");
+  unlock("retreat_ok");
+  if (!S.spentAny) unlock("no_buy"); // won't trigger since we spent; ok
+  endGame(true, "下撤成功 · Good Ending", `你从「${r.name}」安全出山。花了 ¥${r.cost} 保命，剩余 ¥${S.money}。活着回来也是通关。`);
+}
+
+function endGame(good, title, body) {
+  S.ended = true;
+  refreshMeta(); drawMap(); renderActions();
+  document.getElementById("endTitle").textContent = title;
+  document.getElementById("endBody").textContent = body;
+  const ul = document.getElementById("endAchs");
+  ul.innerHTML = "";
+  [...S.unlockedThisRun].forEach(id => {
+    const li = document.createElement("li");
+    li.className = "got";
+    li.textContent = ACH_DEFS[id].title + " — " + ACH_DEFS[id].desc;
+    ul.appendChild(li);
+  });
+  document.getElementById("endModal").classList.add("show");
+  log(good ? title : title, good ? "good" : "bad");
+}
+
+function showAchievements() {
+  const got = loadAch();
+  const ul = document.getElementById("achList");
+  ul.innerHTML = "";
+  Object.keys(ACH_DEFS).forEach(id => {
+    const li = document.createElement("li");
+    if (got[id]) li.className = "got";
+    li.textContent = (got[id] ? "✓ " : "○ ") + ACH_DEFS[id].title + " — " + ACH_DEFS[id].desc;
+    ul.appendChild(li);
+  });
+  const found = JSON.parse(localStorage.getItem("aotai_retreats") || "[]");
+  const li = document.createElement("li");
+  li.textContent = `已发现下撤路径 ${found.length}/6`;
+  ul.appendChild(li);
+  document.getElementById("achModal").classList.add("show");
+}
+
+/* BGM: original Ridge Tension, rendered as bgm.mp3 */
+const BGM_TITLE = "Ridge Tension（原创）";
+let bgmAudio = null;
+function ensureBgmAudio() {
+  if (bgmAudio) return bgmAudio;
+  bgmAudio = new Audio("bgm.mp3");
+  bgmAudio.loop = true;
+  bgmAudio.volume = 0.45;
+  bgmAudio.addEventListener("error", () => {
+    log("找不到同目录的 bgm.mp3，请用「选择BGM文件」加载，或把 mp3 放在网页旁。", "bad");
+  });
+  return bgmAudio;
+}
+function pickBgmFile() {
+  const inp = document.getElementById("bgmFile");
+  inp.onchange = () => {
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    const a = ensureBgmAudio();
+    if (a.src && a.src.startsWith("blob:")) URL.revokeObjectURL(a.src);
+    a.src = URL.createObjectURL(f);
+    a.play().then(() => { S.bgmOn = true; renderActions(); log("BGM：" + BGM_TITLE + "（已加载本地文件）", "sys"); }).catch(() => log("浏览器拦截了自动播放，再点一次开启 BGM。", "bad"));
+  };
+  inp.click();
+}
+function toggleBgm() {
+  const a = ensureBgmAudio();
+  if (S.bgmOn) { a.pause(); S.bgmOn = false; }
+  else {
+    a.play().then(() => { S.bgmOn = true; log("BGM：" + BGM_TITLE, "sys"); })
+      .catch(() => { log("需手动开启：点 BGM，或选择本地音频。", "sys"); pickBgmFile(); });
+  }
+  renderActions();
+}
+
+function start() {
+  S = {
+    idx: 0, money: 600, stam: 100, food: 6, water: 5,
+    day: 1, hour: 7, weather: WEATHERS[0],
+    foodNeed: 0, waterNeed: 0, camps: 0, spentAny: false,
+    discoveredRetreats: new Set(), unlockedThisRun: new Set(),
+    ended: false, bgmOn: false,
+  };
+  log("塘口村，清晨。你带着 ¥600 和简单补给，目标：鳌山进、太白出，尽量少花钱走到鹦鸽。体力见底可就地寻找下撤口——活着下撤也算 Good Ending。", "sys");
+  log("指令在下方。左图为示意轨迹。BGM 为原创《Ridge Tension》：点 BGM 播放。分享时请连同 bgm.mp3。", "sys");
+  refreshMeta(); drawMap(); renderActions();
+}
+start();
+</script>
+</body>
+</html>
