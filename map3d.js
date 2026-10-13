@@ -15,13 +15,19 @@ window.AotaiMap3D = (function () {
   const WORLD_SCALE = 0.00105;
   let terrainMeta = null;
   let elevData = null;
-  const Y_SCALE = 0.0105;
+  const Y_SCALE = 0.014;
+  const VERT_EXAG = 2.75;
+  let schematicCx = 0;
+  let schematicCy = 0;
+  let schematicScale = 0.2;
+  let geoAffine = null;
+  let trailMeshes = [];
   let weatherId = "clear";
   let animId = 0;
   let camTarget = new THREE.Vector3();
   let camDesired = new THREE.Vector3();
   /** 0 = 全貌（最远） · 1 = 近景航拍（最近） */
-  let mapZoom = 0.38;
+  let mapZoom = 0.22;
   let routeBounds = null;
   let playerBeam = null;
   let playerRing = null;
@@ -89,7 +95,75 @@ window.AotaiMap3D = (function () {
   }
 
   function elevToWorldY(elevM) {
-    return (elevM - terrainMeta.elev_min) * Y_SCALE;
+    return (elevM - terrainMeta.elev_min) * Y_SCALE * VERT_EXAG;
+  }
+
+  function solve3(A, b) {
+    const M = A.map((row, i) => [...row, b[i]]);
+    for (let c = 0; c < 3; c++) {
+      let piv = c;
+      for (let r = c + 1; r < 3; r++) if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
+      [M[c], M[piv]] = [M[piv], M[c]];
+      const div = M[c][c] || 1e-9;
+      for (let j = c; j < 4; j++) M[c][j] /= div;
+      for (let r = 0; r < 3; r++) {
+        if (r === c) continue;
+        const f = M[r][c];
+        for (let j = c; j < 4; j++) M[r][j] -= f * M[c][j];
+      }
+    }
+    return [M[0][3], M[1][3], M[2][3]];
+  }
+
+  function fitGeoAffine(points) {
+    const M = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    const blon = [0, 0, 0];
+    const blat = [0, 0, 0];
+    points.forEach((p) => {
+      const v = [p.x, p.y, 1];
+      for (let i = 0; i < 3; i++) {
+        for (let j = 0; j < 3; j++) M[i][j] += v[i] * v[j];
+        blon[i] += v[i] * p.lon;
+        blat[i] += v[i] * p.lat;
+      }
+    });
+    return { lon: solve3(M, blon), lat: solve3(M, blat) };
+  }
+
+  function lonLatFromSchematic(sx, sy) {
+    const a = geoAffine;
+    return {
+      lon: a.lon[0] * sx + a.lon[1] * sy + a.lon[2],
+      lat: a.lat[0] * sx + a.lat[1] * sy + a.lat[2],
+    };
+  }
+
+  function schematicToWorldXZ(sx, sy) {
+    return {
+      x: (sx - schematicCx) * schematicScale,
+      z: -(sy - schematicCy) * schematicScale,
+    };
+  }
+
+  function setupSchematicLayout(points) {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    points.forEach((p) => {
+      minX = Math.min(minX, p.x);
+      maxX = Math.max(maxX, p.x);
+      minY = Math.min(minY, p.y);
+      maxY = Math.max(maxY, p.y);
+    });
+    schematicCx = (minX + maxX) / 2;
+    schematicCy = (minY + maxY) / 2;
+    const span = Math.max(maxX - minX, maxY - minY);
+    schematicScale = 125 / span;
+    geoAffine = fitGeoAffine(points);
+  }
+
+  function heightAtSchematic(sx, sy) {
+    const { lon, lat } = lonLatFromSchematic(sx, sy);
+    const elev = sampleElevMeters(lon, lat);
+    return elevToWorldY(elev);
   }
 
   function loadTerrainData() {
@@ -121,13 +195,11 @@ window.AotaiMap3D = (function () {
   }
 
   function buildWorldPoints(points) {
+    setupSchematicLayout(points);
     return points.map((p) => {
-      const lon = p.lon;
-      const lat = p.lat;
-      const xz = lonLatToXZ(lon, lat);
-      const elev = sampleElevMeters(lon, lat);
-      const y = elevToWorldY(elev) + 0.35;
-      return { x: xz.x, z: xz.z, y, elev, meta: p };
+      const xz = schematicToWorldXZ(p.x, p.y);
+      const y = heightAtSchematic(p.x, p.y) + 0.55;
+      return { x: xz.x, z: xz.z, y, meta: p };
     });
   }
 
@@ -148,32 +220,44 @@ window.AotaiMap3D = (function () {
 
   function buildTerrain() {
     const m = terrainMeta;
-    const segX = 220;
-    const segZ = 200;
+    const pts = worldPts.map((w) => w.meta);
+    let minSx = Infinity, maxSx = -Infinity, minSy = Infinity, maxSy = -Infinity;
+    pts.forEach((p) => {
+      minSx = Math.min(minSx, p.x);
+      maxSx = Math.max(maxSx, p.x);
+      minSy = Math.min(minSy, p.y);
+      maxSy = Math.max(maxSy, p.y);
+    });
+    const pad = 70;
+    minSx -= pad;
+    maxSx += pad;
+    minSy -= pad;
+    maxSy += pad;
+    const segX = 200;
+    const segZ = 180;
     const geo = new THREE.PlaneGeometry(1, 1, segX, segZ);
     geo.rotateX(-Math.PI / 2);
     const pos = geo.attributes.position;
     const colors = [];
-    const corners = [
-      lonLatToXZ(m.lon_min, m.lat_min),
-      lonLatToXZ(m.lon_max, m.lat_min),
-      lonLatToXZ(m.lon_min, m.lat_max),
-      lonLatToXZ(m.lon_max, m.lat_max),
-    ];
-    const minX = Math.min(corners[0].x, corners[1].x, corners[2].x, corners[3].x);
-    const maxX = Math.max(corners[0].x, corners[1].x, corners[2].x, corners[3].x);
-    const minZ = Math.min(corners[0].z, corners[1].z, corners[2].z, corners[3].z);
-    const maxZ = Math.max(corners[0].z, corners[1].z, corners[2].z, corners[3].z);
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    let maxY = 0;
     for (let i = 0; i < pos.count; i++) {
       const u = pos.getX(i) + 0.5;
       const v = pos.getZ(i) + 0.5;
-      const lon = m.lon_min + u * (m.lon_max - m.lon_min);
-      const lat = m.lat_max - v * (m.lat_max - m.lat_min);
+      const sx = minSx + u * (maxSx - minSx);
+      const sy = maxSy - v * (maxSy - minSy);
+      const xz = schematicToWorldXZ(sx, sy);
+      const { lon, lat } = lonLatFromSchematic(sx, sy);
       const elev = sampleElevMeters(lon, lat);
-      const xz = lonLatToXZ(lon, lat);
+      const y = elevToWorldY(elev);
       pos.setX(i, xz.x);
       pos.setZ(i, xz.z);
-      pos.setY(i, elevToWorldY(elev));
+      pos.setY(i, y);
+      minX = Math.min(minX, xz.x);
+      maxX = Math.max(maxX, xz.x);
+      minZ = Math.min(minZ, xz.z);
+      maxZ = Math.max(maxZ, xz.z);
+      maxY = Math.max(maxY, y);
       const col = vertexColorForElev(elev);
       colors.push(col.r, col.g, col.b);
     }
@@ -183,8 +267,8 @@ window.AotaiMap3D = (function () {
       geo,
       new THREE.MeshStandardMaterial({
         vertexColors: true,
-        roughness: 0.9,
-        metalness: 0.03,
+        roughness: 0.88,
+        metalness: 0.02,
       })
     );
     terrain.receiveShadow = true;
@@ -192,51 +276,19 @@ window.AotaiMap3D = (function () {
     routeBounds = {
       cx: (minX + maxX) / 2,
       cz: (minZ + maxZ) / 2,
-      cy: elevToWorldY((m.elev_min + m.elev_max) / 2),
+      cy: maxY * 0.42,
       span: Math.max(maxX - minX, maxZ - minZ),
-      maxY: elevToWorldY(m.elev_max),
+      maxY,
     };
   }
 
-  function buildTrail() {
-    const vecs = worldPts.map((p) => new THREE.Vector3(p.x, p.y + 0.35, p.z));
-    curve = new THREE.CatmullRomCurve3(vecs, false, "catmullrom", 0.35);
-    const donePts = [];
-    const todoPts = [];
-    for (let i = 0; i < worldPts.length; i++) {
-      const v = vecs[i];
-      if (i <= playerIdx) donePts.push(v.clone());
-      else todoPts.push(v.clone());
-    }
-    if (donePts.length >= 2) {
-      const g = new THREE.BufferGeometry().setFromPoints(donePts);
-      trailDone = new THREE.Line(
-        g,
-        new THREE.LineBasicMaterial({ color: 0x5dbe8a, linewidth: 2 })
-      );
-      scene.add(trailDone);
-    }
-    if (todoPts.length >= 1 && donePts.length) {
-      const linePts = [donePts[donePts.length - 1].clone(), ...todoPts];
-      const g = new THREE.BufferGeometry().setFromPoints(linePts);
-      trailTodo = new THREE.Line(
-        g,
-        new THREE.LineBasicMaterial({ color: 0x4a5a68, linewidth: 1 })
-      );
-      scene.add(trailTodo);
-    }
-    const tubeGeo = new THREE.TubeGeometry(curve, 280, 0.22, 6, false);
-    const tubeMat = new THREE.MeshStandardMaterial({
-      color: 0x3a4a38,
-      roughness: 0.85,
-      metalness: 0.02,
+  function clearTrailMeshes() {
+    trailMeshes.forEach((m) => {
+      scene.remove(m);
+      m.geometry.dispose();
+      if (m.material) m.material.dispose();
     });
-    const walk = new THREE.Mesh(tubeGeo, tubeMat);
-    walk.position.y = -0.15;
-    scene.add(walk);
-  }
-
-  function rebuildTrailLines() {
+    trailMeshes = [];
     if (trailDone) {
       scene.remove(trailDone);
       trailDone.geometry.dispose();
@@ -247,13 +299,40 @@ window.AotaiMap3D = (function () {
       trailTodo.geometry.dispose();
       trailTodo = null;
     }
-    const vecs = worldPts.map((p) => new THREE.Vector3(p.x, p.y + 0.35, p.z));
+  }
+
+  function addTrailTube(vecs, color, radius, emissive) {
+    if (vecs.length < 2) return;
+    const c = new THREE.CatmullRomCurve3(vecs, false, "catmullrom", 0.42);
+    const geo = new THREE.TubeGeometry(c, Math.max(64, vecs.length * 8), radius, 10, false);
+    const mat = new THREE.MeshStandardMaterial({
+      color,
+      emissive: emissive || color,
+      emissiveIntensity: emissive ? 0.35 : 0.08,
+      roughness: 0.55,
+      metalness: 0.05,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    scene.add(mesh);
+    trailMeshes.push(mesh);
+  }
+
+  function rebuildTrailGraphics() {
+    clearTrailMeshes();
+    const vecs = worldPts.map((p) => new THREE.Vector3(p.x, p.y + 0.2, p.z));
+    curve = new THREE.CatmullRomCurve3(vecs, false, "catmullrom", 0.42);
     const donePts = vecs.filter((_, i) => i <= playerIdx);
     const todoPts = vecs.filter((_, i) => i > playerIdx);
+    addTrailTube(vecs, 0x2a3540, 0.35, null);
+    if (todoPts.length >= 2) addTrailTube(todoPts, 0x6a7a88, 0.95, 0x4a5a68);
+    else if (todoPts.length === 1 && donePts.length) {
+      addTrailTube([donePts[donePts.length - 1], todoPts[0]], 0x6a7a88, 0.95, 0x4a5a68);
+    }
+    if (donePts.length >= 2) addTrailTube(donePts, 0x5dbe8a, 1.15, 0x3d9a6a);
     if (donePts.length >= 2) {
       trailDone = new THREE.Line(
         new THREE.BufferGeometry().setFromPoints(donePts),
-        new THREE.LineBasicMaterial({ color: 0x5dbe8a })
+        new THREE.LineBasicMaterial({ color: 0x9ef0b8 })
       );
       scene.add(trailDone);
     }
@@ -261,10 +340,18 @@ window.AotaiMap3D = (function () {
       const linePts = [donePts[donePts.length - 1].clone(), ...todoPts];
       trailTodo = new THREE.Line(
         new THREE.BufferGeometry().setFromPoints(linePts),
-        new THREE.LineBasicMaterial({ color: 0x4a5a68 })
+        new THREE.LineBasicMaterial({ color: 0xb8c8d8 })
       );
       scene.add(trailTodo);
     }
+  }
+
+  function buildTrail() {
+    rebuildTrailGraphics();
+  }
+
+  function rebuildTrailLines() {
+    rebuildTrailGraphics();
   }
 
   function buildMarkers() {
