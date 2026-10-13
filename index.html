@@ -65,6 +65,22 @@
     background: rgba(0,0,0,.5); padding: 6px 10px; border-radius: 6px; z-index: 2; max-width: 55%;
     line-height: 1.35;
   }
+  .map-zoom {
+    position: absolute; right: 10px; bottom: 52px; z-index: 3;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    background: rgba(0,0,0,.5); padding: 8px 10px; border-radius: 8px;
+    font-size: 10px; color: var(--muted);
+  }
+  .map-zoom input[type=range] {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    width: 28px; height: 110px;
+    accent-color: var(--accent);
+  }
+  .map-zoom button {
+    min-height: auto; padding: 4px 10px; font-size: 12px;
+    background: rgba(18,24,32,.9);
+  }
   .map-loc b { color: var(--accent); }
   .map-legend {
     position: absolute; left: 10px; bottom: 10px; font-size: 11px; color: var(--muted);
@@ -137,7 +153,14 @@
   <div class="map-pane">
     <canvas id="map3d"></canvas>
     <div class="map-loc" id="mapLoc">加载地形…</div>
-    <div class="map-legend">地理示意地形（经纬+海拔） · 侧后方跟拍 · 极端天气粒子随当前天气<br/>绿径=已走 · 灰径=前方 · 橙点=当前位置</div>
+    <div class="map-zoom" title="滚轮可缩放">
+      <span>近景</span>
+      <button type="button" onclick="mapZoomStep(0.12)">＋</button>
+      <input type="range" id="mapZoomSlider" min="0" max="100" value="52" aria-label="地图缩放" />
+      <button type="button" onclick="mapZoomStep(-0.12)">－</button>
+      <span>全貌</span>
+    </div>
+    <div class="map-legend">航拍视角 · 橙柱=你 · 滚轮/滑条缩放（最下=鳌太全线）<br/>绿径=已走 · 灰径=前方</div>
   </div>
   <div class="game-pane">
     <div id="log"></div>
@@ -428,6 +451,10 @@ function refreshMeta() {
   document.getElementById("mDay").textContent = S.day + " · " + S.hour.toFixed(1) + "h";
 }
 
+function mapZoomStep(delta) {
+  if (typeof AotaiMap3D !== "undefined") AotaiMap3D.adjustZoom(delta);
+}
+
 function drawMap() {
   const pts = DATA.points;
   if (!pts.length || typeof AotaiMap3D === "undefined") return;
@@ -437,7 +464,7 @@ function drawMap() {
   AotaiMap3D.update(S.idx, w);
   const loc = document.getElementById("mapLoc");
   if (loc && p) {
-    loc.innerHTML = `<b>${p.name}</b> · ${p.alt_m}m<br/><span style="color:var(--muted);font-size:11px">侧后方俯视跟拍</span>`;
+    loc.innerHTML = `<b>${p.name}</b> · ${p.alt_m}m<br/><span style="color:var(--muted);font-size:11px">航拍 · 橙光柱为当前位置</span>`;
   }
 }
 
@@ -692,7 +719,7 @@ function buyShopItem(item) {
 function finishShop() {
   document.getElementById("shopModal").classList.remove("show");
   log("塘口村，清晨。你整理背包，沿火烧坡方向进山。目标：鳌山进、太白出，尽量少花钱走到鹦鸽。", "sys");
-  log("左侧为地理示意 3D 山脊，侧后方俯视跟拍。任意地点可过夜（消耗粮水）；下撤车费可事后补缴。", "sys");
+  log("左侧为航拍 3D 山脊：橙光柱是你，滑条/滚轮可缩放到鳌太全线全貌。任意地点可过夜；下撤可后补车费。", "sys");
   refreshMeta(); drawMap(); renderActions();
   if (typeof AotaiMap3D !== "undefined") setTimeout(() => AotaiMap3D.resize(), 80);
   startBgmAutoplay();
