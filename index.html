@@ -59,10 +59,24 @@
     .map-legend { font-size: 10px; }
   }
   .map-pane { position: relative; background: #0c1015; min-height: 0; }
-  .map-pane svg { width: 100%; height: 100%; display: block; }
+  #map3d { width: 100%; height: 100%; display: block; touch-action: none; }
+  .map-hud {
+    position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 6px; z-index: 2;
+  }
+  .map-hud button {
+    padding: 6px 10px; font-size: 11px; min-height: auto; background: rgba(18,24,32,.82);
+  }
+  .map-hud button.active { border-color: var(--accent); color: var(--accent); }
+  .map-loc {
+    position: absolute; left: 10px; top: 10px; font-size: 12px; color: var(--text);
+    background: rgba(0,0,0,.5); padding: 6px 10px; border-radius: 6px; z-index: 2; max-width: 55%;
+    line-height: 1.35;
+  }
+  .map-loc b { color: var(--accent); }
   .map-legend {
     position: absolute; left: 10px; bottom: 10px; font-size: 11px; color: var(--muted);
     background: rgba(0,0,0,.45); padding: 6px 8px; border-radius: 6px; line-height: 1.5;
+    z-index: 2; pointer-events: none;
   }
   .game-pane { display: flex; flex-direction: column; min-height: 0; }
   #log {
@@ -129,8 +143,16 @@
 </header>
 <div class="layout">
   <div class="map-pane">
-    <svg id="map" viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid meet"></svg>
-    <div class="map-legend">鳌山→太白 单向 · ▶ 行进方向 · ● 当前 · ○ 营地 · ◇ 水源 · 虚线=下撤<br/>纵轴示意海拔，横轴示意里程（非精确测绘）</div>
+    <canvas id="map3d"></canvas>
+    <div class="map-loc" id="mapLoc">加载地形…</div>
+    <div class="map-hud">
+      <button type="button" id="camFollow" class="active" onclick="setMapCamera('follow')">跟随</button>
+      <button type="button" id="camAerial" onclick="setMapCamera('aerial')">俯瞰</button>
+      <button type="button" id="camRidge" onclick="setMapCamera('ridge')">侧视</button>
+      <button type="button" id="camTrail" onclick="setMapCamera('trail')">行山视角</button>
+      <button type="button" onclick="cycleMapCamera()">切换镜头</button>
+    </div>
+    <div class="map-legend">3D 示意山脊（非测绘） · 鳌山→太白 · 随行动自动跟拍 · 可点镜头按钮<br/>绿径=已走 · 灰径=前方 · 橙点=当前位置</div>
   </div>
   <div class="game-pane">
     <div id="log"></div>
@@ -168,6 +190,8 @@
     <div style="margin-top:14px"><button onclick="document.getElementById('achModal').classList.remove('show')">关闭</button></div>
   </div>
 </div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="map3d.js"></script>
 <script>
 let DATA = { points: [], retreats: {} };
 let GAME = { shop: [], gear: {}, emergencies: [] };
@@ -419,82 +443,32 @@ function refreshMeta() {
   document.getElementById("mDay").textContent = S.day + " · " + S.hour.toFixed(1) + "h";
 }
 
-function segmentArrow(a, b) {
-  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-  const ang = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
-  return `<g transform="translate(${mx},${my}) rotate(${ang})"><path d="M -5,-4 L 7,0 L -5,4 Z" fill="#c9a66b" opacity=".75"/></g>`;
+function drawMap() {
+  const pts = DATA.points;
+  if (!pts.length || typeof AotaiMap3D === "undefined") return;
+  if (!AotaiMap3D.isReady()) AotaiMap3D.init(pts);
+  const p = pts[S.idx];
+  const w = S.weather ? S.weather.id : "clear";
+  AotaiMap3D.update(S.idx, w);
+  const loc = document.getElementById("mapLoc");
+  if (loc && p) {
+    loc.innerHTML = `<b>${p.name}</b> · ${p.alt_m}m<br/><span style="color:var(--muted);font-size:11px">镜头：${AotaiMap3D.getCameraLabel()}</span>`;
+  }
 }
 
-function drawMap() {
-  const svg = document.getElementById("map");
-  const pts = DATA.points;
-  if (!pts.length) return;
+function setMapCamera(mode) {
+  if (typeof AotaiMap3D !== "undefined") AotaiMap3D.setCameraMode(mode);
+  document.querySelectorAll(".map-hud button[id^='cam']").forEach(btn => btn.classList.remove("active"));
+  const id = { follow: "camFollow", aerial: "camAerial", ridge: "camRidge", trail: "camTrail" }[mode];
+  if (id) document.getElementById(id)?.classList.add("active");
+  drawMap();
+}
 
-  let elevPath = "";
-  pts.forEach((p, i) => { elevPath += (i ? " L " : "M ") + p.x + " " + p.y; });
-
-  let segments = "";
-  let arrows = "";
-  for (let i = 0; i < pts.length - 1; i++) {
-    const a = pts[i], b = pts[i + 1];
-    const done = i < S.idx;
-    const seg = `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
-    segments += `<path d="${seg}" fill="none" stroke="${done ? "#5dbe8a" : "#3d4f5f"}" stroke-width="${done ? 3 : 2}" opacity="${done ? .9 : .55}" stroke-linecap="round"/>`;
-    if (i >= S.idx - 1 && i <= S.idx + 2) arrows += segmentArrow(a, b);
+function cycleMapCamera() {
+  if (typeof AotaiMap3D !== "undefined") {
+    const next = AotaiMap3D.cycleCameraMode();
+    setMapCamera(next);
   }
-
-  let marks = "";
-  pts.forEach(p => {
-    if (p.retreat) {
-      const ty = Math.min(680, p.y + 50);
-      marks += `<line x1="${p.x}" y1="${p.y}" x2="${p.x}" y2="${ty}" stroke="#6b5228" stroke-width="1.5" stroke-dasharray="4 3" opacity=".7"/>`;
-      marks += `<text x="${p.x}" y="${ty+11}" fill="#8b9aab" font-size="9" text-anchor="middle">撤</text>`;
-    }
-  });
-
-  pts.forEach((p, i) => {
-    const visited = i <= S.idx;
-    const here = i === S.idx;
-    const campable = p.camp || p.bivy;
-    let r = here ? 7 : (campable ? 5 : 3.5);
-    let fill = here ? "#e8a54b" : (visited ? "#5dbe8a" : "#4a5562");
-    if (p.water && !here) {
-      marks += `<polygon points="${p.x},${p.y-6} ${p.x+5},${p.y+3} ${p.x-5},${p.y+3}" fill="#5dade2" opacity=".85"/>`;
-    } else {
-      marks += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${fill}" stroke="#0f1419" stroke-width="1"/>`;
-    }
-    if (p.camp && !here) marks += `<circle cx="${p.x}" cy="${p.y}" r="7" fill="none" stroke="#c9a66b" stroke-width="1" opacity=".55"/>`;
-    const showLabel = here || p.id === 1 || p.id === 29 || p.id === 36
-      || (p.supply && i > S.idx - 2 && i < S.idx + 3)
-      || (i % 4 === 0 && p.alt_m >= 3400);
-    if (showLabel) {
-      marks += `<text x="${p.x}" y="${p.y - 11}" fill="#e7eef6" font-size="9.5" text-anchor="middle">${p.name}</text>`;
-      marks += `<text x="${p.x}" y="${p.y + 18}" fill="#6d8499" font-size="8" text-anchor="middle">${p.alt_m}m</text>`;
-    }
-  });
-
-  const curP = pts[S.idx];
-  svg.innerHTML = `
-    <defs>
-      <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#1a2838"/><stop offset="100%" stop-color="#0c1015"/>
-      </linearGradient>
-      <linearGradient id="ridge" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0%" stop-color="#1e3a2f" stop-opacity=".35"/><stop offset="50%" stop-color="#2a3040" stop-opacity=".25"/><stop offset="100%" stop-color="#3a2a20" stop-opacity=".3"/>
-      </linearGradient>
-    </defs>
-    <rect width="1000" height="700" fill="url(#sky)"/>
-    <rect x="30" y="520" width="940" height="160" fill="url(#ridge)" rx="8"/>
-    <text x="48" y="548" fill="#5d7a6a" font-size="10">低海拔林带</text>
-    <text x="48" y="90" fill="#8b9aab" font-size="10">石海·梁顶区</text>
-    <text x="42" y="32" fill="#e8a54b" font-size="12">塘口（鳌山侧）</text>
-    <text x="958" y="32" fill="#e8a54b" font-size="12" text-anchor="end">鹦鸽（太白侧）</text>
-    <path d="${elevPath} L ${pts[pts.length-1].x} 680 L ${pts[0].x} 680 Z" fill="#1a222c" opacity=".4"/>
-    ${segments}
-    ${arrows}
-    ${marks}
-    <circle cx="${curP.x}" cy="${curP.y}" r="11" fill="none" stroke="#e8a54b" stroke-width="2" opacity=".85"/>
-  `;
 }
 
 function renderActions() {
@@ -749,8 +723,9 @@ function buyShopItem(item) {
 function finishShop() {
   document.getElementById("shopModal").classList.remove("show");
   log("塘口村，清晨。你整理背包，沿火烧坡方向进山。目标：鳌山进、太白出，尽量少花钱走到鹦鸽。", "sys");
-  log("左图纵轴示意海拔、横轴示意里程；金色小三角为行进方向（塘口→鹦鸽）。任意地点可过夜（消耗粮水）；下撤车费可事后补缴。", "sys");
+  log("左侧为 3D 示意山脊，可切换镜头；随你前进自动跟拍。任意地点可过夜（消耗粮水）；下撤车费可事后补缴。", "sys");
   refreshMeta(); drawMap(); renderActions();
+  if (typeof AotaiMap3D !== "undefined") setTimeout(() => AotaiMap3D.resize(), 80);
 }
 
 const BGM_TITLE = "Ridge Tension（原创）";
@@ -802,6 +777,7 @@ async function boot() {
   await loadGameFiles();
   initState();
   renderShop();
+  window.addEventListener("resize", () => { if (typeof AotaiMap3D !== "undefined") AotaiMap3D.resize(); });
 }
 
 boot();
