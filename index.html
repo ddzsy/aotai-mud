@@ -364,27 +364,53 @@ function consumeGearOnEvent(weatherId) {
   });
 }
 
-function canCampHere(p) {
-  if (p.camp) return { ok: true, mode: "camp" };
-  if (p.bivy && (hasGear("tarp") || hasGear("bivy"))) return { ok: true, mode: "bivy" };
-  if (hasGear("tarp") || hasGear("bivy")) return { ok: false, reason: `「${p.name}」无固定营地；此处不宜硬宿（无平整营位）。` };
-  if (p.bivy) return { ok: false, reason: `「${p.name}」可应急露宿，但需要天幕或应急 bivy。` };
-  return { ok: false, reason: `「${p.name}」未标记营地，且梁顶/石海禁止过夜。` };
+function campMode(p) {
+  if (p.camp) return "camp";
+  if (p.bivy || hasGear("tarp") || hasGear("bivy")) return "bivy";
+  return "wild";
 }
 
-function campFoodWaterOk(hours, resting) {
-  const foodNeed = hours / (resting ? 6 : 4);
-  const waterNeed = hours / (resting ? 5 : 3);
-  const foodShort = S.food < Math.ceil(foodNeed);
-  const waterShort = S.water < Math.ceil(waterNeed);
-  if (foodShort && waterShort) return "干粮和水都不足以支撑这一夜，继续走或先补给。";
-  if (foodShort) return "干粮不够过夜（约需 " + Math.ceil(foodNeed) + " 份），先吃点或买粮。";
-  if (waterShort) return "饮水不够过夜（约需 " + Math.ceil(waterNeed) + " 份），先取水或买水。";
-  return null;
+function campModeLabel(mode) {
+  if (mode === "camp") return "扎营过夜";
+  if (mode === "bivy") return "应急露宿";
+  return "就地过夜";
+}
+
+/** 过夜固定消耗粮水；不足也允许扎营，但恢复变差并记日志 */
+function spendCampSupplies(mode) {
+  const foodCost = mode === "wild" ? 3 : 2;
+  const waterCost = mode === "wild" ? 3 : 2;
+  const foodUsed = Math.min(S.food, foodCost);
+  const waterUsed = Math.min(S.water, waterCost);
+  S.food -= foodUsed;
+  S.water -= waterUsed;
+  let penalty = 0;
+  if (foodUsed < foodCost) {
+    penalty += (foodCost - foodUsed) * 12;
+    log(`干粮不足（需约 ${foodCost}，实有 ${foodUsed}），仍勉强过夜，粮袋见底。`, "bad");
+  } else {
+    log(`过夜消耗干粮 ${foodCost} 份。`, "sys");
+  }
+  if (waterUsed < waterCost) {
+    penalty += (waterCost - waterUsed) * 14;
+    log(`饮水不足（需约 ${waterCost}，实有 ${waterUsed}），仍硬撑一夜，水壶掏空。`, "bad");
+  } else {
+    log(`过夜消耗饮水 ${waterCost} 份。`, "sys");
+  }
+  if (mode === "wild" && !hasGear("tarp") && !hasGear("bivy")) {
+    penalty += 10;
+    log("非营地硬宿，风寒夜长，恢复打折。", "bad");
+  }
+  return penalty;
+}
+
+function formatMoney(n) {
+  if (n < 0) return "欠¥" + (-n);
+  return "¥" + n;
 }
 
 function refreshMeta() {
-  document.getElementById("mMoney").textContent = "¥" + S.money;
+  document.getElementById("mMoney").textContent = formatMoney(S.money);
   document.getElementById("mStam").textContent = S.stam + "/100";
   document.getElementById("mFood").textContent = S.food;
   document.getElementById("mWater").textContent = S.water;
@@ -480,11 +506,7 @@ function renderActions() {
   const p = cur();
   const btns = [];
   if (S.idx < DATA.points.length - 1) btns.push(`<button class="primary" onclick="goNext()">前进 →</button>`);
-  const campInfo = canCampHere(p);
-  if (campInfo.ok) {
-    const label = campInfo.mode === "bivy" ? "应急露宿" : "扎营过夜";
-    btns.push(`<button onclick="camp()">${label}</button>`);
-  }
+  btns.push(`<button onclick="camp()">${campModeLabel(campMode(p))}</button>`);
   if (p.water) btns.push(`<button onclick="fillWater()">取水</button>`);
   if (p.supply) {
     if (p.price_food != null) btns.push(`<button onclick="buy('food')">买干粮 ¥${p.price_food}</button>`);
@@ -557,18 +579,9 @@ function goNext() {
 
 function camp() {
   const p = cur();
-  const campInfo = canCampHere(p);
-  if (!campInfo.ok) {
-    log(campInfo.reason, "bad");
-    return;
-  }
-  const block = campFoodWaterOk(8, true);
-  if (block) {
-    log("无法扎营：" + block, "bad");
-    return;
-  }
-  let bonus = 35;
-  if (campInfo.mode === "bivy") bonus = 28;
+  const mode = campMode(p);
+  const supplyPenalty = spendCampSupplies(mode);
+  let bonus = mode === "camp" ? 35 : (mode === "bivy" ? 28 : 20);
   ["pad", "bivy", "tarp", "stove", "fuel"].forEach(gid => {
     const def = GAME.gear[gid];
     if (!hasGear(gid) || !def) return;
@@ -578,15 +591,16 @@ function camp() {
       if (fuel && fuel.uses > 0) { fuel.uses--; bonus += 3; }
     }
   });
-  tickNeeds(8, { resting: true });
+  S.stam = Math.max(0, S.stam - supplyPenalty);
+  S.hour += 8;
+  while (S.hour >= 24) { S.hour -= 24; S.day++; }
   S.stam = Math.min(100, S.stam + bonus);
   S.camps++;
   if (S.camps >= 5) unlock("camp_10");
   S.weather = weatherPick(p.weather_risk);
   const nightEmerg = rollSuddenEmergency(p.weather_risk + 1);
   if (nightEmerg && Math.random() < 0.55) applyEmergency(nightEmerg, p.weather_risk);
-  const modeTxt = campInfo.mode === "bivy" ? "应急露宿" : "扎营";
-  log(`在「${p.name}」${modeTxt}过夜。体力 +${bonus}，新的一天天气：${S.weather.name}。`, "good");
+  log(`在「${p.name}」${campModeLabel(mode)}。体力 +${bonus}（已计粮水消耗），新一天天气：${S.weather.name}。`, "good");
   if (checkFail()) return;
   refreshMeta(); drawMap(); renderActions();
 }
@@ -622,19 +636,22 @@ function doRetreat() {
   const p = cur();
   if (!p.retreat) return;
   const r = p.retreat;
-  if (S.money < r.cost) {
-    log(`下撤需要包车/向导费约 ¥${r.cost}，现金不足。`, "bad");
-    return;
-  }
+  const before = S.money;
   S.money -= r.cost;
   S.spentAny = true;
+  if (before < r.cost) {
+    log(`包车/向导费约 ¥${r.cost}，现金只有 ¥${before}——先下山，费用事后补缴。`, "evt");
+  }
   tickNeeds(r.hours);
   S.discoveredRetreats.add(r.id);
   const found = JSON.parse(localStorage.getItem("aotai_retreats") || "[]");
   if (!found.includes(r.id)) { found.push(r.id); localStorage.setItem("aotai_retreats", JSON.stringify(found)); }
   if (found.length >= 6) unlock("retreat_explorer");
   unlock("retreat_ok");
-  endGame(true, "下撤成功 · Good Ending", `你从「${r.name}」安全出山。花了 ¥${r.cost} 保命，剩余 ¥${S.money}。活着回来也是通关。`);
+  const moneyNote = S.money < 0
+    ? `车费 ¥${r.cost}，当前欠费 ${formatMoney(S.money)}（下山后补缴）。`
+    : `车费 ¥${r.cost}，剩余 ${formatMoney(S.money)}。`;
+  endGame(true, "下撤成功 · Good Ending", `你从「${r.name}」安全出山。${moneyNote}活着回来也是通关。`);
 }
 
 function endGame(good, title, body) {
@@ -683,7 +700,7 @@ function showGear() {
 }
 
 function renderShop() {
-  document.getElementById("shopMoney").textContent = S.money;
+  document.getElementById("shopMoney").textContent = formatMoney(S.money);
   document.getElementById("shopWeight").textContent = totalWeightKg();
   const grid = document.getElementById("shopGrid");
   grid.innerHTML = "";
