@@ -1,0 +1,11 @@
+{
+  "lat_min": 32.9,
+  "lat_max": 34.06,
+  "lon_min": 107.5,
+  "lon_max": 107.9,
+  "elev_min": 457.0,
+  "elev_max": 3753.0,
+  "width": 384,
+  "height": 352,
+  "source": "SRTM Skadi 1 arc-sec, merged N33-N34 E106-E107"
+}
