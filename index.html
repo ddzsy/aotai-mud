@@ -60,13 +60,6 @@
   }
   .map-pane { position: relative; background: #0c1015; min-height: 0; }
   #map3d { width: 100%; height: 100%; display: block; touch-action: none; }
-  .map-hud {
-    position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 6px; z-index: 2;
-  }
-  .map-hud button {
-    padding: 6px 10px; font-size: 11px; min-height: auto; background: rgba(18,24,32,.82);
-  }
-  .map-hud button.active { border-color: var(--accent); color: var(--accent); }
   .map-loc {
     position: absolute; left: 10px; top: 10px; font-size: 12px; color: var(--text);
     background: rgba(0,0,0,.5); padding: 6px 10px; border-radius: 6px; z-index: 2; max-width: 55%;
@@ -139,20 +132,12 @@
     <span>天气 <b id="mWeather">—</b></span>
     <span>日 <b id="mDay">—</b></span>
   </div>
-<input type="file" id="bgmFile" accept="audio/*" style="display:none" />
 </header>
 <div class="layout">
   <div class="map-pane">
     <canvas id="map3d"></canvas>
     <div class="map-loc" id="mapLoc">加载地形…</div>
-    <div class="map-hud">
-      <button type="button" id="camFollow" class="active" onclick="setMapCamera('follow')">跟随</button>
-      <button type="button" id="camAerial" onclick="setMapCamera('aerial')">俯瞰</button>
-      <button type="button" id="camRidge" onclick="setMapCamera('ridge')">侧视</button>
-      <button type="button" id="camTrail" onclick="setMapCamera('trail')">行山视角</button>
-      <button type="button" onclick="cycleMapCamera()">切换镜头</button>
-    </div>
-    <div class="map-legend">3D 示意山脊 · 极端天气有雨雪/雾/风粒子与雷暴闪光（随当前天气）<br/>绿径=已走 · 灰径=前方 · 橙点=当前位置</div>
+    <div class="map-legend">地理示意地形（经纬+海拔） · 侧后方跟拍 · 极端天气粒子随当前天气<br/>绿径=已走 · 灰径=前方 · 橙点=当前位置</div>
   </div>
   <div class="game-pane">
     <div id="log"></div>
@@ -452,22 +437,7 @@ function drawMap() {
   AotaiMap3D.update(S.idx, w);
   const loc = document.getElementById("mapLoc");
   if (loc && p) {
-    loc.innerHTML = `<b>${p.name}</b> · ${p.alt_m}m<br/><span style="color:var(--muted);font-size:11px">镜头：${AotaiMap3D.getCameraLabel()}</span>`;
-  }
-}
-
-function setMapCamera(mode) {
-  if (typeof AotaiMap3D !== "undefined") AotaiMap3D.setCameraMode(mode);
-  document.querySelectorAll(".map-hud button[id^='cam']").forEach(btn => btn.classList.remove("active"));
-  const id = { follow: "camFollow", aerial: "camAerial", ridge: "camRidge", trail: "camTrail" }[mode];
-  if (id) document.getElementById(id)?.classList.add("active");
-  drawMap();
-}
-
-function cycleMapCamera() {
-  if (typeof AotaiMap3D !== "undefined") {
-    const next = AotaiMap3D.cycleCameraMode();
-    setMapCamera(next);
+    loc.innerHTML = `<b>${p.name}</b> · ${p.alt_m}m<br/><span style="color:var(--muted);font-size:11px">侧后方俯视跟拍</span>`;
   }
 }
 
@@ -490,8 +460,6 @@ function renderActions() {
   if (p.retreat) btns.push(`<button class="danger" onclick="doRetreat()">下撤：${p.retreat.name}</button>`);
   btns.push(`<button onclick="showGear()">装备</button>`);
   btns.push(`<button onclick="showAchievements()">成就</button>`);
-  btns.push(`<button onclick="toggleBgm()">${S.bgmOn ? "关闭BGM" : "BGM: Ridge Tension"}</button>`);
-  btns.push(`<button onclick="pickBgmFile()">选择BGM文件</button>`);
   box.innerHTML = btns.join("");
 }
 
@@ -705,6 +673,7 @@ function shopDesc(item) {
 }
 
 function buyShopItem(item) {
+  startBgmAutoplay();
   if (S.money < item.cost) return;
   if (item.type === "gear" && hasGear(item.gear)) return;
   S.money -= item.cost;
@@ -723,43 +692,48 @@ function buyShopItem(item) {
 function finishShop() {
   document.getElementById("shopModal").classList.remove("show");
   log("塘口村，清晨。你整理背包，沿火烧坡方向进山。目标：鳌山进、太白出，尽量少花钱走到鹦鸽。", "sys");
-  log("左侧为 3D 示意山脊，可切换镜头；随你前进自动跟拍。任意地点可过夜（消耗粮水）；下撤车费可事后补缴。", "sys");
+  log("左侧为地理示意 3D 山脊，侧后方俯视跟拍。任意地点可过夜（消耗粮水）；下撤车费可事后补缴。", "sys");
   refreshMeta(); drawMap(); renderActions();
   if (typeof AotaiMap3D !== "undefined") setTimeout(() => AotaiMap3D.resize(), 80);
+  startBgmAutoplay();
 }
 
 const BGM_TITLE = "Ridge Tension（原创）";
-let bgmAudio = null;
-function ensureBgmAudio() {
-  if (bgmAudio) return bgmAudio;
-  bgmAudio = new Audio("bgm.mp3");
-  bgmAudio.loop = true;
-  bgmAudio.volume = 0.45;
-  bgmAudio.addEventListener("error", () => {
-    log("找不到同目录的 bgm.mp3，请用「选择BGM文件」加载，或把 mp3 放在网页旁。", "bad");
-  });
-  return bgmAudio;
-}
-function pickBgmFile() {
-  const inp = document.getElementById("bgmFile");
-  inp.onchange = () => {
-    const f = inp.files && inp.files[0];
-    if (!f) return;
-    const a = ensureBgmAudio();
-    if (a.src && a.src.startsWith("blob:")) URL.revokeObjectURL(a.src);
-    a.src = URL.createObjectURL(f);
-    a.play().then(() => { S.bgmOn = true; renderActions(); log("BGM：" + BGM_TITLE + "（已加载本地文件）", "sys"); }).catch(() => log("浏览器拦截了自动播放，再点一次开启 BGM。", "bad"));
-  };
-  inp.click();
-}
-function toggleBgm() {
-  const a = ensureBgmAudio();
-  if (S.bgmOn) { a.pause(); S.bgmOn = false; }
-  else {
-    a.play().then(() => { S.bgmOn = true; log("BGM：" + BGM_TITLE, "sys"); })
-      .catch(() => { log("需手动开启：点 BGM，或选择本地音频。", "sys"); pickBgmFile(); });
+let bgmStarted = false;
+let bgmCtx = null;
+let bgmGain = null;
+
+async function startBgmAutoplay() {
+  if (bgmStarted) return;
+  bgmStarted = true;
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    bgmCtx = new AudioCtx();
+    if (bgmCtx.state === "suspended") await bgmCtx.resume();
+    const res = await fetch("bgm.mp3");
+    if (!res.ok) throw new Error("bgm fetch");
+    const buf = await bgmCtx.decodeAudioData(await res.arrayBuffer());
+    bgmGain = bgmCtx.createGain();
+    bgmGain.gain.value = 0.45;
+    bgmGain.connect(bgmCtx.destination);
+    const src = bgmCtx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    src.connect(bgmGain);
+    src.start(0);
+    S.bgmOn = true;
+  } catch (e) {
+    console.warn("WebAudio BGM fallback", e);
+    const a = new Audio("bgm.mp3");
+    a.loop = true;
+    a.volume = 0.45;
+    a.addEventListener("timeupdate", () => {
+      if (a.duration && a.duration - a.currentTime < 0.08) a.currentTime = 0.02;
+    });
+    a.addEventListener("ended", () => { a.currentTime = 0; a.play(); });
+    await a.play().catch(() => {});
+    S.bgmOn = true;
   }
-  renderActions();
 }
 
 function initState() {
@@ -768,7 +742,7 @@ function initState() {
     day: 1, hour: 7, weather: WEATHERS.clear,
     foodNeed: 0, waterNeed: 0, camps: 0, spentAny: false,
     discoveredRetreats: new Set(), unlockedThisRun: new Set(),
-    ended: false, bgmOn: false,
+    ended: false, bgmOn: true,
     gear: {}, baseWeight: 2.2,
   };
 }
