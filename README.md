@@ -25,4 +25,4 @@ python3 -m http.server 8080
 
 ## 部署
 
-根目录含 `.nojekyll`，推送到 `main` 即可 GitHub Pages 托管。运行时仅需：`index.html`、`map3d.js`、`points.json`、`game-data.json`、`bgm.mp3`。
+根目录含 `.nojekyll`，推送到 `main` 即可 GitHub Pages 托管。运行时仅需：`index.html`、`map3d.js`、`points.json`、`game-data.json`、`bgm.mp3`（由 `bgm.mid` 离线渲染；旧版 BGM 保留为 `bgm-backup.mp3`）。
