@@ -537,5 +537,376 @@
       "mult": 0.1,
       "log": "湿滑的岩脊一脚踏空，你抓住岩棱勉强止住——再偏半米就是崖外。"
     }
-  ]
+  ],
+  "randomEvents": {
+    "baseChance": {
+      "move": 0.24,
+      "camp": 0.2,
+      "fillWater": 0.14,
+      "buy": 0.1,
+      "useItem": 0.12,
+      "waitSignal": 0.16,
+      "retreat": 0.18
+    },
+    "weatherBonus": {
+      "blizzard": 0.06,
+      "whiteout": 0.05,
+      "storm": 0.05,
+      "gale": 0.04,
+      "heavy_rain": 0.03,
+      "snow": 0.02,
+      "fog": 0.02
+    },
+    "altitudeBonusPer1000m": 0.015,
+    "events": [
+      {
+        "id": "ridge_whiteout_choice",
+        "type": "choice",
+        "weight": 1.1,
+        "actions": ["move", "camp"],
+        "minRisk": 3,
+        "minAlt": 3200,
+        "weatherAny": ["whiteout", "blizzard", "fog"],
+        "title": "白茫梁顶",
+        "prompt": "能见度不足十米，轨迹在手机屏幕上断断续续。风在耳膜里尖叫——继续硬顶还是蹲下来等风小？",
+        "choices": [
+          {
+            "label": "蹲下等风，保存体力",
+            "log": "你在背风石后缩成一团，等风势稍歇再继续。",
+            "effects": { "stam": 6, "hours": 0.8 }
+          },
+          {
+            "label": "凭轨迹硬走",
+            "log": "你埋头跟线，每一步都像在赌。",
+            "effects": { "stam": -10, "altExposure": 4 }
+          },
+          {
+            "label": "吹哨示位（若有）",
+            "log": "短促哨声被风撕碎，但至少你知道自己还在梁上。",
+            "effects": { "stam": -2 },
+            "requiresGear": "whistle"
+          }
+        ]
+      },
+      {
+        "id": "hiker_turnback",
+        "type": "choice",
+        "weight": 1.0,
+        "actions": ["move"],
+        "minRisk": 2,
+        "title": "下山驴友",
+        "prompt": "一名浑身泥水的驴友从梁上下来，拦住你：「上面白茫了，别硬顶！保护区查得也严。」",
+        "choices": [
+          {
+            "label": "听劝放慢节奏",
+            "log": "你把话记在心里，刻意放慢脚步，多看了几眼下撤岔口。",
+            "effects": { "stam": 8, "hours": 0.4 }
+          },
+          {
+            "label": "谢过仍按原计划",
+            "log": "你点点头，仍往梁顶去——非法穿越的代价，只能自己扛。",
+            "effects": { "altExposure": 3 }
+          },
+          {
+            "label": "打听检查站",
+            "log": "对方说塘口最近抽检多，你脊背发凉。",
+            "effects": {}
+          }
+        ]
+      },
+      {
+        "id": "signal_flicker",
+        "type": "choice",
+        "weight": 0.95,
+        "actions": ["move", "camp", "waitSignal"],
+        "minAlt": 3000,
+        "signalOut": true,
+        "title": "一格信号",
+        "prompt": "手机突然跳出一格信号，图标闪了两秒又灭。要趁现在发什么吗？",
+        "choices": [
+          {
+            "label": "发定位给亲友",
+            "log": "你挤出一条简短定位，发送成功——下一秒又是「无服务」。",
+            "effects": { "phoneBattery": -8 }
+          },
+          {
+            "label": "省电，继续走",
+            "log": "你锁屏收机：在无信号区，电量比朋友圈重要。",
+            "effects": { "stam": 2 }
+          },
+          {
+            "label": "试打 110（占线/无效）",
+            "log": "号码拨出即断。梁顶不是城市，救援也要时间。",
+            "effects": { "phoneBattery": -12, "stam": -3 }
+          }
+        ]
+      },
+      {
+        "id": "ams_headache",
+        "type": "choice",
+        "weight": 1.05,
+        "actions": ["move", "camp"],
+        "minAlt": 3300,
+        "title": "高反征兆",
+        "prompt": "太阳穴像被箍紧，恶心上涌。继续爬升还是原地缓一缓？",
+        "choices": [
+          {
+            "label": "原地休息喝水",
+            "log": "你强迫自己慢呼吸，少喝几口温水。",
+            "effects": { "stam": 5, "water": -1, "altExposure": -6, "hours": 0.5 }
+          },
+          {
+            "label": "吃止疼药硬撑",
+            "log": "药片咽下，头痛稍缓，但高反不会因此消失。",
+            "effects": { "stam": -4, "altExposure": 2 },
+            "requiresGear": "painkiller"
+          },
+          {
+            "label": "无视继续走",
+            "log": "你咬牙继续——鳌太的高海拔不原谅侥幸。",
+            "effects": { "stam": -12, "altExposure": 10 }
+          }
+        ]
+      },
+      {
+        "id": "gear_rain_fail",
+        "type": "choice",
+        "weight": 0.85,
+        "actions": ["move"],
+        "weatherAny": ["rain", "heavy_rain", "storm"],
+        "title": "雨具失守",
+        "prompt": "雨越下越急，冲锋衣拉链卡住，袖口渗水。怎么办？",
+        "choices": [
+          {
+            "label": "停下整理装备",
+            "log": "你躲到背风处拧干袖口，耽误时间但少失温。",
+            "effects": { "stam": 3, "hours": 0.35, "hypo": -1 }
+          },
+          {
+            "label": "不管继续走",
+            "log": "湿冷贴肤，体温一点点被抽走。",
+            "effects": { "stam": -8, "hypo": 1 }
+          }
+        ]
+      },
+      {
+        "id": "stone_cairn_wrong",
+        "type": "choice",
+        "weight": 0.75,
+        "actions": ["move"],
+        "stoneSea": true,
+        "title": "石海路标",
+        "prompt": "石堆里有人新垒的石阵，和轨迹略偏。跟石阵还是跟 GPS？",
+        "choices": [
+          {
+            "label": "跟 GPS/轨迹",
+            "log": "你坚持看线，绕开可疑石阵。",
+            "effects": { "stam": -4, "phoneBattery": -3 }
+          },
+          {
+            "label": "跟石阵走捷径",
+            "log": "路看似好走，却把你带进乱石沟——多耗一截体力。",
+            "effects": { "stam": -14 }
+          },
+          {
+            "label": "蹲下辨方向再动",
+            "log": "你花时间对图、对山形，心里踏实些。",
+            "effects": { "hours": 0.6, "stam": -2 }
+          }
+        ]
+      },
+      {
+        "id": "camp_stranger_light",
+        "type": "choice",
+        "weight": 0.7,
+        "actions": ["camp"],
+        "minRisk": 3,
+        "title": "远处头灯",
+        "prompt": "夜里梁上不远处有头灯晃了一下又灭。要喊一声吗？",
+        "choices": [
+          {
+            "label": "轻声打招呼",
+            "log": "对面也回了一声口哨——同是非法进山的人，心照不宣。",
+            "effects": { "stam": 2 }
+          },
+          {
+            "label": "保持安静",
+            "log": "你压低头灯：越少人知道你在哪，越好。",
+            "effects": {}
+          },
+          {
+            "label": "吹哨求救式",
+            "log": "哨声尖锐，远处灯又亮了一下——不知是救还是警。",
+            "effects": { "stam": -3 },
+            "requiresGear": "whistle"
+          }
+        ]
+      },
+      {
+        "id": "supply_price_up",
+        "type": "choice",
+        "weight": 0.65,
+        "actions": ["buy"],
+        "supply": true,
+        "title": "补给点涨价",
+        "prompt": "老乡说「背上来的」，干粮水价都比传闻贵一截。",
+        "choices": [
+          {
+            "label": "咬牙买一点",
+            "log": "你少买了些，心里盘算后面怎么省。",
+            "effects": { "money": -25, "food": 1, "water": 1 }
+          },
+          {
+            "label": "只买最缺的",
+            "log": "你只补了缺口，现金仍紧。",
+            "effects": { "money": -12 }
+          },
+          {
+            "label": "不买，靠库存",
+            "log": "你转身走开——省钱局，每一口都要算。",
+            "effects": { "stam": -3 }
+          }
+        ]
+      },
+      {
+        "id": "auto_gust_stumble",
+        "type": "auto",
+        "weight": 1.0,
+        "actions": ["move"],
+        "weatherAny": ["gale", "blizzard", "storm"],
+        "minRisk": 3,
+        "log": "一阵侧风把你推得踉跄，登山杖在石面上刮出刺耳声响。",
+        "effects": { "stam": -6 }
+      },
+      {
+        "id": "auto_hail_bruise",
+        "type": "auto",
+        "weight": 0.8,
+        "actions": ["move"],
+        "weatherAny": ["storm"],
+        "minRisk": 3,
+        "log": "冰雹砸在肩顶，裸露皮肤迅速淤青，你只能蜷缩着挪过暴露段。",
+        "effects": { "stam": -9, "hypo": 1 },
+        "fx": "hail"
+      },
+      {
+        "id": "auto_battery_cold",
+        "type": "auto",
+        "weight": 0.9,
+        "actions": ["move", "camp"],
+        "weatherAny": ["blizzard", "snow", "whiteout"],
+        "minAlt": 3000,
+        "log": "低温让手机电量跳水，屏幕亮度自动变暗。",
+        "effects": { "phoneBattery": -10 }
+      },
+      {
+        "id": "auto_fog_gps_drift",
+        "type": "auto",
+        "weight": 0.75,
+        "actions": ["move"],
+        "weatherAny": ["fog", "whiteout"],
+        "stoneSea": true,
+        "log": "浓雾里 GPS 轨迹飘了一下，你后背发冷，赶紧对地形。",
+        "effects": { "stam": -5, "phoneBattery": -4 }
+      },
+      {
+        "id": "auto_trail_tape",
+        "type": "auto",
+        "weight": 0.85,
+        "actions": ["move"],
+        "minRisk": 2,
+        "log": "树上系着褪色路标胶带，写着「勿入」——你仍从旁边擦身而过。",
+        "effects": {}
+      },
+      {
+        "id": "auto_energy_bar",
+        "type": "auto",
+        "weight": 0.6,
+        "actions": ["move"],
+        "log": "石缝里卡着半块没开封的能量胶，像前人留下的「补给」。你犹豫后还是吃了。",
+        "effects": { "food": 1, "stam": 4 }
+      },
+      {
+        "id": "auto_stream_trick",
+        "type": "auto",
+        "weight": 0.7,
+        "actions": ["fillWater"],
+        "log": "溪边有动物足迹，你多滤了一遍水，心里仍不踏实。",
+        "effects": { "water": 1, "stam": -2 }
+      },
+      {
+        "id": "auto_checkpoint_echo",
+        "type": "auto",
+        "weight": 0.55,
+        "actions": ["move", "camp"],
+        "maxAlt": 2800,
+        "log": "山谷里隐约传来喊话器回声——沟口仍在劝返非法穿越者。",
+        "effects": { "stam": -2 }
+      },
+      {
+        "id": "auto_takin_distant",
+        "type": "auto",
+        "weight": 0.5,
+        "actions": ["move", "camp"],
+        "minAlt": 2800,
+        "log": "远处岩坡上有个巨大身影移动——羚牛。你别惊扰，绕远通过。",
+        "effects": { "hours": 0.25, "stam": -3 }
+      },
+      {
+        "id": "auto_snow_blind",
+        "type": "auto",
+        "weight": 0.7,
+        "actions": ["move"],
+        "weatherAny": ["whiteout", "blizzard", "snow"],
+        "log": "雪面反光刺眼，你眯眼流泪，速度不得不慢下来。",
+        "effects": { "stam": -5 },
+        "mitigatedByGear": "goggles"
+      },
+      {
+        "id": "auto_retreat_mudslide",
+        "type": "auto",
+        "weight": 0.85,
+        "actions": ["retreat"],
+        "minRisk": 2,
+        "log": "下撤小路有新鲜落石痕迹，你手脚并用往下挪，不敢多想。",
+        "effects": { "stam": -8, "hours": 0.5 }
+      },
+      {
+        "id": "auto_wait_signal_hope",
+        "type": "auto",
+        "weight": 0.65,
+        "actions": ["waitSignal"],
+        "signalOut": true,
+        "log": "你举着手机转圈找信号，屏幕上只有「搜索网络」。",
+        "effects": { "phoneBattery": -5, "stam": -2 }
+      },
+      {
+        "id": "auto_powerbank_share",
+        "type": "auto",
+        "weight": 0.45,
+        "actions": ["useItem"],
+        "log": "补电时你发现接口进水汽，充得比平时慢。",
+        "effects": { "phoneBattery": 15 }
+      },
+      {
+        "id": "auto_rhodiola_remind",
+        "type": "auto",
+        "weight": 0.5,
+        "actions": ["move", "camp"],
+        "minAlt": 3200,
+        "requiresGear": "rhodiola",
+        "log": "你嚼了几片红景天，苦味在舌根——预防救不了硬顶。",
+        "effects": { "altExposure": -5, "gearUse": "rhodiola" }
+      },
+      {
+        "id": "auto_illegal_banner",
+        "type": "auto",
+        "weight": 0.6,
+        "actions": ["move"],
+        "maxAlt": 2600,
+        "log": "林缘立着警示牌：「鳌太线非法穿越，违者承担后果」。风把牌吹得啪啪响。",
+        "effects": {}
+      }
+    ]
+  }
 }
