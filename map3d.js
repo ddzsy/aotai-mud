@@ -537,7 +537,7 @@ window.AotaiMap3D = (function () {
         }
         if (map && map.isStyleLoaded()) updateRouteSources();
         setWeatherVisual(weather, { hail: weather === "storm" && window.__aotaiHailFx });
-        if (ready) applyCamera(changed);
+        // 路线/天气刷新不重置视角；仅 init / setZoom（滑条·滚轮·±）会 applyCamera
       })
       .catch((e) => console.warn("MapLibre", e));
   }
