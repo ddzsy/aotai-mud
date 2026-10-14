@@ -725,26 +725,6 @@ function afterInterceptPassed() {
   if (typeof AotaiMap3D !== "undefined") setTimeout(() => AotaiMap3D.resize(), 80);
 }
 
-const SHOP_PRESETS = {
-  minimal: [],
-  standard: ["food_6", "water_5", "shell", "headlamp"],
-  safe: ["food_12", "water_10", "shell", "rain_pants", "tarp", "pad", "headlamp", "gps", "rhodiola"],
-};
-
-function applyShopPreset(id) {
-  initState();
-  S.loadoutPreset = id;
-  S.money = 600;
-  S.food = 4;
-  S.water = 3;
-  S.gear = {};
-  (SHOP_PRESETS[id] || []).forEach(sid => {
-    const item = (GAME.shop || []).find(x => x.id === sid);
-    if (item) buyShopItem(item);
-  });
-  renderShop();
-}
-
 function buildRetreats(points) {
   const retreats = {};
   points.forEach((p, i) => { if (p.retreat) retreats[String(p.id)] = p.retreat; });
