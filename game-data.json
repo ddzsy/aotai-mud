@@ -346,8 +346,7 @@
   "intercept": {
     "questionCount": 1,
     "minCorrect": 1,
-    "slipThroughBase": 0.52,
-    "randomTurnbackBase": 0.1,
+    "correctTurnbackClockRule": "提交答案时 new Date().getSeconds() < 9（秒 0–8，约 15%）；答错一律劝返",
     "fineChance": 0.08,
     "fineAmount": 200,
     "questions": [

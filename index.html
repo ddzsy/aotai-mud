@@ -924,11 +924,9 @@ function isMinimalLoadout() {
   return spent < 130 && gearN <= 3 && totalWeightKg() < 8.5;
 }
 
-function interceptStrictnessBonus() {
-  let b = 0;
-  if (isMinimalLoadout()) b += 0.14;
-  if (S.holidayCheck) b += 0.12;
-  return b;
+/** 答对安全题时：玩家提交答案瞬间的系统秒数 0–8 → 遣返/劝返，概率 9/60≈15%。错答一律劝返。 */
+function interceptTurnbackOnCorrectByClock() {
+  return new Date().getSeconds() < 9;
 }
 
 function pickInterceptQuestions() {
@@ -960,7 +958,7 @@ function renderInterceptQuestion() {
   const need = cfg.minCorrect ?? 1;
   document.getElementById("interceptProgress").textContent =
     qs.length === 1
-      ? "安全问询 · 答对本题方可继续（答错将被劝返）"
+      ? "安全问询 · 答错一律劝返；答对后仍有约 15% 抽检劝返（按提交时系统秒数 0–8）"
       : `第 ${i + 1}/${qs.length} 题 · 需答对至少 ${need} 题`;
   const q = qs[i];
   document.getElementById("interceptQuestion").textContent = q.q;
@@ -987,19 +985,13 @@ function finishInterceptQuiz() {
   document.getElementById("interceptModal").classList.remove("show");
   const cfg = GAME.intercept || {};
   const need = cfg.minCorrect ?? 1;
-  const strict = interceptStrictnessBonus();
   const quizFail = S.interceptCorrect < need;
-  const randomTurn = Math.random() < ((cfg.randomTurnbackBase || 0.1) + strict);
-  if (quizFail || randomTurn) {
-    const reason = quizFail
-      ? "安全问询未达要求，工作人员坚持劝返。"
-      : "抽检升级：今日加派警力，你未能「溜」进山。";
-    resolveInterceptTurnback(reason);
+  if (quizFail) {
+    resolveInterceptTurnback("安全问询未达要求，工作人员坚持劝返。");
     return;
   }
-  const slip = (cfg.slipThroughBase || 0.52) - strict * 0.35;
-  if (Math.random() > Math.max(0.12, slip)) {
-    resolveInterceptTurnback("值班人员决定今日不放行，请改走合法景区线路。");
+  if (interceptTurnbackOnCorrectByClock()) {
+    resolveInterceptTurnback("答对了安全题，但今日抽检仍命中你。");
     return;
   }
   S.checkpointPassed = true;
@@ -1014,10 +1006,12 @@ function resolveInterceptTurnback(reason) {
     S.money -= fine;
   }
   unlock("lawful_turnback");
+  const staffLine = "既然这么懂事就快回去吧。";
   log(`<b>劝返</b>：${reason}`, "good");
+  log(`工作人员看着你：「${staffLine}」`, "sys");
   const fineNote = fine ? `另被处以行政处罚约 ¥${fine}（2018–2022 公开报道累计劝返 1785 人次、处罚 105 起）。` : "未罚款，现金基本保留。";
   endGame(true, "劝返成功 · 官方结局",
-    `你被依法劝返塘口，没有进入禁区。剩余现金 ${formatMoney(S.money)}。${fineNote}活着离开，就是这一局最好的结局。`);
+    `${reason} 工作人员看着你：「${staffLine}」你被依法劝返塘口，没有进入禁区。剩余现金 ${formatMoney(S.money)}。${fineNote}活着离开，就是这一局最好的结局。`);
 }
 
 function afterInterceptPassed() {
