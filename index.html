@@ -630,14 +630,10 @@ function interceptStrictnessBonus() {
 
 function pickInterceptQuestions() {
   const cfg = GAME.intercept || {};
-  const pool = [...(cfg.questions || [])];
-  const n = cfg.questionCount || 3;
-  const picked = [];
-  while (picked.length < n && pool.length) {
-    const i = Math.floor(Math.random() * pool.length);
-    picked.push(pool.splice(i, 1)[0]);
-  }
-  return picked;
+  const pool = cfg.questions || [];
+  if (!pool.length) return [];
+  const i = Math.floor(Math.random() * pool.length);
+  return [pool[i]];
 }
 
 function beginInterceptCheckpoint() {
@@ -658,8 +654,11 @@ function renderInterceptQuestion() {
   const qs = S.interceptQuiz;
   const i = S.interceptIdx;
   const cfg = GAME.intercept || {};
+  const need = cfg.minCorrect ?? 1;
   document.getElementById("interceptProgress").textContent =
-    `第 ${i + 1}/${qs.length} 题 · 需答对至少 ${cfg.minCorrect || 2} 题`;
+    qs.length === 1
+      ? "安全问询 · 答对本题方可继续（答错将被劝返）"
+      : `第 ${i + 1}/${qs.length} 题 · 需答对至少 ${need} 题`;
   const q = qs[i];
   document.getElementById("interceptQuestion").textContent = q.q;
   const box = document.getElementById("interceptOptions");
@@ -684,7 +683,7 @@ function answerIntercept(choice) {
 function finishInterceptQuiz() {
   document.getElementById("interceptModal").classList.remove("show");
   const cfg = GAME.intercept || {};
-  const need = cfg.minCorrect || 2;
+  const need = cfg.minCorrect ?? 1;
   const strict = interceptStrictnessBonus();
   const quizFail = S.interceptCorrect < need;
   const randomTurn = Math.random() < ((cfg.randomTurnbackBase || 0.1) + strict);

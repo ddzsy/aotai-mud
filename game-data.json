@@ -344,8 +344,8 @@
     }
   },
   "intercept": {
-    "questionCount": 3,
-    "minCorrect": 2,
+    "questionCount": 1,
+    "minCorrect": 1,
     "slipThroughBase": 0.52,
     "randomTurnbackBase": 0.1,
     "fineChance": 0.08,
