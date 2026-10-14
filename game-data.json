@@ -4,31 +4,31 @@
       "id": "minimal",
       "name": "极简",
       "tagline": "多留现金，轻装赌天气",
-      "includes": "基础粮水（4 干粮 / 3 水）+ 干粮×6、一次性雨衣、求生哨",
+      "includes": "基础粮水（4 干粮 / 3 水）+ 干粮×7、一次性雨衣、求生哨",
       "shopIds": ["food_6", "poncho", "whistle"]
     },
     {
       "id": "normal",
       "name": "普通",
       "tagline": "冲风雨具 + 过夜基础，攻守平衡",
-      "includes": "干粮×6、瓶装水×10、冲锋衣、雨裤、天幕、泡沫垫、头灯",
+      "includes": "干粮×7、瓶装水×10、冲锋衣、雨裤、天幕、泡沫垫、头灯",
       "shopIds": ["food_6", "water_10", "shell", "rain_pants", "tarp", "pad", "headlamp"]
     },
     {
       "id": "luxury",
       "name": "豪华",
       "tagline": "雨雪防护拉满，梁上也能睡",
-      "includes": "干粮×6、瓶装水×10、冲锋衣、雨裤、天幕、泡沫垫、雪套、护目镜、暖宝宝、头灯",
+      "includes": "干粮×7、瓶装水×10、冲锋衣、雨裤、天幕、泡沫垫、雪套、护目镜、暖宝宝、头灯",
       "shopIds": ["food_6", "water_10", "shell", "rain_pants", "tarp", "pad", "gaiters", "goggles", "hot_pack", "headlamp"]
     }
   ],
   "shop": [
     {
       "id": "food_6",
-      "name": "干粮×6",
+      "name": "干粮×7",
       "cost": 70,
       "type": "food",
-      "amount": 6,
+      "amount": 7,
       "weight": 1.2
     },
     {
