@@ -154,6 +154,23 @@
   .shop-row .info { flex: 1; color: var(--muted); line-height: 1.4; }
   .shop-row .info b { color: var(--text); }
   .shop-row.owned { border-color: #3d6b4f; opacity: .85; }
+  .pkg-grid { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
+  button.pkg-card {
+    width: 100%; font: inherit; color: inherit;
+    border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+    cursor: pointer; transition: border-color .15s, background .15s; text-align: left;
+    background: #151c24;
+  }
+  .pkg-card:hover { border-color: #445566; }
+  .pkg-card.selected { border-color: var(--accent); background: #1e2430; box-shadow: 0 0 0 1px rgba(232,165,75,.25); }
+  .pkg-card .pkg-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+  .pkg-card .pkg-name { font-size: 16px; font-weight: 700; color: var(--text); }
+  .pkg-card .pkg-cost { font-size: 14px; color: var(--accent); font-weight: 600; white-space: nowrap; }
+  .pkg-card .pkg-tag { font-size: 12px; color: var(--muted); margin: 0 0 6px; }
+  .pkg-card .pkg-includes { font-size: 12px; color: var(--muted); line-height: 1.45; margin: 0; }
+  .pkg-card .pkg-after { font-size: 12px; color: var(--good); margin-top: 8px; }
+  .prep-summary { font-size: 13px; color: var(--muted); margin: 0 0 8px; line-height: 1.45; }
+  .prep-summary b { color: var(--text); }
 </style>
 </head>
 <body>
@@ -193,15 +210,27 @@
   </div>
 </div>
 <div class="ach-toast" id="toast"></div>
-<div class="modal-bg show" id="shopModal">
+<div class="modal-bg show" id="packageModal">
+  <div class="modal" style="width:min(520px,94vw)">
+    <h2>塘口村 · 出发前准备</h2>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 8px">你带着 ¥600 与基础粮水。先选一套出发方案；不满意可再进商店单买补给。鳌太天气翻脸极快——装备能保命，现金能撑到下撤。</p>
+    <p class="prep-summary" id="prepSummary">当前：<b>未选套餐</b> · 现金 <b id="prepMoney">¥600</b> · 负重 <b id="prepWeight">2.2</b> kg · 干粮 <b id="prepFood">4</b> · 水 <b id="prepWater">3</b></p>
+    <div class="pkg-grid" id="packageGrid"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      <button class="primary" id="btnDepart" onclick="finishShop()" disabled>出发上山</button>
+      <button type="button" onclick="openAddonShop()">额外补给</button>
+      <button onclick="showAchievements()">成就</button>
+    </div>
+  </div>
+</div>
+<div class="modal-bg" id="addonShopModal">
   <div class="modal">
-    <h2>塘口村 · 出发前采购</h2>
-    <p style="font-size:13px;color:var(--muted);margin:0 0 8px">你带着 ¥600 和基础补给。尽量省钱，但鳌太天气翻脸极快——适当装备能保命。买完点「出发」。</p>
+    <h2>塘口补给店</h2>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 8px">单买装备与粮水，叠加在你已选的套餐之上。买够就关店，回到出发界面。</p>
     <p style="font-size:13px;margin:0 0 4px">剩余现金：<b id="shopMoney">600</b> · 负重：<b id="shopWeight">0</b> kg</p>
     <div class="shop-grid" id="shopGrid"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-      <button class="primary" onclick="finishShop()">出发上山</button>
-      <button onclick="showAchievements()">成就</button>
+      <button class="primary" onclick="closeAddonShop()">返回出发准备</button>
     </div>
   </div>
 </div>
@@ -226,7 +255,7 @@
 <script src="map3d.js"></script>
 <script>
 let DATA = { points: [], retreats: {} };
-let GAME = { shop: [], gear: {}, emergencies: [] };
+let GAME = { shop: [], gear: {}, emergencies: [], starterPackages: [] };
 
 const WEATHERS = {
   clear: { id: "clear", name: "晴", mult: 1, stam: 0 },
@@ -285,6 +314,7 @@ async function loadInlineFallback() {
   }
   GAME = {
     shop: [],
+    starterPackages: [],
     gear: {},
     emergencies: [
       { id: "blizzard", name: "暴雪", weather: "blizzard", minRisk: 3, weight: 1, stam: 14, mult: 0.35, log: "狂风卷雪，能见度骤降。" },
@@ -700,6 +730,109 @@ function showGear() {
   log(names.length ? "携带装备：" + names.join("、") : "除基础衣物外无额外装备。", "sys");
 }
 
+const PREP_INIT = { money: 600, food: 4, water: 3, baseWeight: 2.2 };
+
+function shopItemById(id) {
+  return (GAME.shop || []).find(it => it.id === id);
+}
+
+function packageSpend(pkg) {
+  let sum = 0;
+  (pkg.shopIds || []).forEach(sid => {
+    const it = shopItemById(sid);
+    if (it) sum += it.cost;
+  });
+  return sum;
+}
+
+function resetPrepInventory() {
+  S.money = PREP_INIT.money;
+  S.food = PREP_INIT.food;
+  S.water = PREP_INIT.water;
+  S.baseWeight = PREP_INIT.baseWeight;
+  S.gear = {};
+}
+
+function applyShopItemSilent(item) {
+  if (!item || S.money < item.cost) return false;
+  if (item.type === "gear" && hasGear(item.gear)) return false;
+  S.money -= item.cost;
+  if (item.type === "food") S.food += item.amount;
+  else if (item.type === "water") S.water += item.amount;
+  else if (item.type === "gear") {
+    const def = GAME.gear[item.gear] || {};
+    const entry = { weight: item.weight || 0 };
+    if (def.fuelUses) entry.uses = def.fuelUses;
+    else if (def.consumable) entry.uses = def.uses || 3;
+    S.gear[item.gear] = entry;
+  }
+  return true;
+}
+
+function applyStarterPackage(pkg) {
+  if (!pkg) return;
+  resetPrepInventory();
+  (pkg.shopIds || []).forEach(sid => {
+    const it = shopItemById(sid);
+    if (it) applyShopItemSilent(it);
+  });
+  S.selectedPackageId = pkg.id;
+  refreshPrepUI();
+}
+
+function refreshPrepUI() {
+  const pkg = (GAME.starterPackages || []).find(p => p.id === S.selectedPackageId);
+  const nameEl = document.getElementById("prepSummary");
+  if (nameEl) {
+    const label = pkg ? `已选「${pkg.name}」` : "未选套餐";
+    nameEl.innerHTML = `当前：<b>${label}</b> · 现金 <b id="prepMoney">${formatMoney(S.money)}</b> · 负重 <b id="prepWeight">${totalWeightKg()}</b> kg · 干粮 <b id="prepFood">${S.food}</b> · 水 <b id="prepWater">${S.water}</b>`;
+  } else {
+    const m = document.getElementById("prepMoney");
+    if (m) m.textContent = formatMoney(S.money);
+    const w = document.getElementById("prepWeight");
+    if (w) w.textContent = totalWeightKg();
+    const f = document.getElementById("prepFood");
+    if (f) f.textContent = S.food;
+    const wa = document.getElementById("prepWater");
+    if (wa) wa.textContent = S.water;
+  }
+  const depart = document.getElementById("btnDepart");
+  if (depart) depart.disabled = !S.selectedPackageId;
+  renderPackageCards();
+}
+
+function renderPackageCards() {
+  const grid = document.getElementById("packageGrid");
+  if (!grid) return;
+  grid.innerHTML = "";
+  (GAME.starterPackages || []).forEach(pkg => {
+    const spend = packageSpend(pkg);
+    const after = PREP_INIT.money - spend;
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "pkg-card" + (S.selectedPackageId === pkg.id ? " selected" : "");
+    card.innerHTML = `
+      <div class="pkg-head"><span class="pkg-name">${pkg.name}</span><span class="pkg-cost">套餐 ¥${spend}</span></div>
+      <p class="pkg-tag">${pkg.tagline || ""}</p>
+      <p class="pkg-includes">${pkg.includes || ""}</p>
+      <p class="pkg-after">选后约剩 ${formatMoney(after)} · 负重约 ${estimatePackageWeight(pkg)} kg</p>`;
+    card.onclick = () => {
+      startBgmAutoplay();
+      applyStarterPackage(pkg);
+    };
+    grid.appendChild(card);
+  });
+}
+
+function estimatePackageWeight(pkg) {
+  let w = PREP_INIT.baseWeight;
+  (pkg.shopIds || []).forEach(sid => {
+    const it = shopItemById(sid);
+    if (it && it.weight) w += it.weight;
+  });
+  return Math.round(w * 10) / 10;
+}
+
 function renderShop() {
   document.getElementById("shopMoney").textContent = formatMoney(S.money);
   document.getElementById("shopWeight").textContent = totalWeightKg();
@@ -720,6 +853,21 @@ function renderShop() {
   });
 }
 
+function openAddonShop() {
+  if (!S.selectedPackageId) {
+    log("请先选一套出发套餐，再进商店加购。", "sys");
+    return;
+  }
+  startBgmAutoplay();
+  renderShop();
+  document.getElementById("addonShopModal").classList.add("show");
+}
+
+function closeAddonShop() {
+  document.getElementById("addonShopModal").classList.remove("show");
+  refreshPrepUI();
+}
+
 function shopDesc(item) {
   if (item.type === "food") return "增加干粮";
   if (item.type === "water") return "增加饮水";
@@ -733,23 +881,16 @@ function shopDesc(item) {
 
 function buyShopItem(item) {
   startBgmAutoplay();
-  if (S.money < item.cost) return;
-  if (item.type === "gear" && hasGear(item.gear)) return;
-  S.money -= item.cost;
-  if (item.type === "food") S.food += item.amount;
-  else if (item.type === "water") S.water += item.amount;
-  else if (item.type === "gear") {
-    const def = GAME.gear[item.gear] || {};
-    const entry = { weight: item.weight || 0 };
-    if (def.fuelUses) entry.uses = def.fuelUses;
-    else if (def.consumable) entry.uses = def.uses || 3;
-    S.gear[item.gear] = entry;
-  }
+  if (!applyShopItemSilent(item)) return;
   renderShop();
+  if (S.prepPhase) refreshPrepUI();
 }
 
 function finishShop() {
-  document.getElementById("shopModal").classList.remove("show");
+  if (!S.selectedPackageId) return;
+  S.prepPhase = false;
+  document.getElementById("packageModal").classList.remove("show");
+  document.getElementById("addonShopModal").classList.remove("show");
   log("塘口村，清晨。你整理背包，沿火烧坡方向进山。目标：鳌山进、太白出，尽量少花钱走到鹦鸽。", "sys");
   log("左侧为卫星示意地图：绿点是你，红线为已走路径。滑条/滚轮调节远近。任意地点可过夜；下撤可后补车费。", "sys");
   refreshMeta(); drawMap(); renderActions();
@@ -803,13 +944,14 @@ function initState() {
     discoveredRetreats: new Set(), unlockedThisRun: new Set(),
     ended: false, bgmOn: true,
     gear: {}, baseWeight: 2.2,
+    selectedPackageId: null, prepPhase: true,
   };
 }
 
 async function boot() {
   await loadGameFiles();
   initState();
-  renderShop();
+  refreshPrepUI();
   window.addEventListener("resize", () => { if (typeof AotaiMap3D !== "undefined") AotaiMap3D.resize(); });
 }
 
