@@ -410,7 +410,6 @@
   <div class="modal">
     <h2>沟口检查站 · 拦截劝返</h2>
     <p style="font-size:13px;color:var(--muted);margin:0 0 10px">森林公安与保护区工作人员拦下你：「鳌太线禁止非法穿越，请接受安全问询。」</p>
-    <p id="interceptProgress" style="font-size:12px;color:var(--accent);margin:0 0 8px"></p>
     <p id="interceptQuestion" style="font-size:14px;line-height:1.5;margin:0 0 12px"></p>
     <div id="interceptOptions" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
@@ -1007,12 +1006,6 @@ function beginInterceptCheckpoint() {
 function renderInterceptQuestion() {
   const qs = S.interceptQuiz;
   const i = S.interceptIdx;
-  const cfg = GAME.intercept || {};
-  const need = cfg.minCorrect ?? 1;
-  document.getElementById("interceptProgress").textContent =
-    qs.length === 1
-      ? "安全问询 · 答错一律劝返；答对后仍有约 15% 抽检劝返（按提交时系统秒数 0–8）"
-      : `第 ${i + 1}/${qs.length} 题 · 需答对至少 ${need} 题`;
   const q = qs[i];
   document.getElementById("interceptQuestion").textContent = q.q;
   const box = document.getElementById("interceptOptions");
