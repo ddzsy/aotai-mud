@@ -171,6 +171,23 @@
   .pkg-card .pkg-after { font-size: 12px; color: var(--good); margin-top: 8px; }
   .prep-summary { font-size: 13px; color: var(--muted); margin: 0 0 8px; line-height: 1.45; }
   .prep-summary b { color: var(--text); }
+  .modal-bg.disclaimer-layer { z-index: 30; background: rgba(0,0,0,.72); }
+  .disclaimer-modal {
+    border-color: #8a3038;
+    box-shadow: 0 0 0 1px rgba(224,108,117,.35), 0 12px 40px rgba(0,0,0,.45);
+    width: min(520px, 94vw);
+  }
+  .disclaimer-modal h2 { color: #f0a0a8; font-size: 17px; letter-spacing: .02em; }
+  .disclaimer-body {
+    font-size: 14px; line-height: 1.65; color: var(--text);
+    margin: 0 0 16px; padding: 12px 14px;
+    background: rgba(42,26,28,.55); border: 1px solid #5a3036; border-radius: 8px;
+  }
+  .disclaimer-body p { margin: 0 0 10px; }
+  .disclaimer-body p:last-child { margin-bottom: 0; }
+  .disclaimer-body .lead { color: #f5c6cb; font-weight: 600; }
+  .disclaimer-actions { display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
+  .disclaimer-actions .hint { font-size: 12px; color: var(--muted); text-align: center; margin: 0; }
 </style>
 </head>
 <body>
@@ -192,7 +209,7 @@
     <div class="map-weather-overlay" id="mapWeatherOverlay" aria-hidden="true"></div>
     <div class="map-title" aria-hidden="true">
       <div class="line1">秦岭 · 鳌太线</div>
-      <div class="line2">禁止非法穿越</div>
+      <div class="line2">保护区明令禁止 · 切勿实地穿越</div>
     </div>
     <div class="map-loc" id="mapLoc">出发前不加载地图 · 买完点「出发」</div>
     <div class="map-zoom" title="滚轮可缩放">
@@ -210,7 +227,21 @@
   </div>
 </div>
 <div class="ach-toast" id="toast"></div>
-<div class="modal-bg show" id="packageModal">
+<div class="modal-bg disclaimer-layer show" id="disclaimerModal" role="dialog" aria-modal="true" aria-labelledby="disclaimerTitle">
+  <div class="modal disclaimer-modal">
+    <h2 id="disclaimerTitle">重要安全提示</h2>
+    <div class="disclaimer-body">
+      <p class="lead">鳌太线穿越目前属于违规行为，太白山国家级自然保护区已明令禁止，违者将面临处罚。</p>
+      <p>沿途气候多变，石海路段极易迷路；仅依赖手机轨迹也存在电量耗尽或信号中断的风险。</p>
+      <p>请务必遵守规定，不要尝试进入。本页面仅为虚构游戏，不代表鼓励或指导实地穿越。</p>
+    </div>
+    <div class="disclaimer-actions">
+      <button type="button" class="primary" id="btnDisclaimerAck" onclick="acknowledgeDisclaimer()">我已知晓，仅作游戏</button>
+      <p class="hint">确认后方可选择出发套餐</p>
+    </div>
+  </div>
+</div>
+<div class="modal-bg" id="packageModal">
   <div class="modal" style="width:min(520px,94vw)">
     <h2>塘口村 · 出发前准备</h2>
     <p style="font-size:13px;color:var(--muted);margin:0 0 8px">你带着 ¥600 与基础粮水。先选一套出发方案；不满意可再进商店单买补给。鳌太天气翻脸极快——装备能保命，现金能撑到下撤。</p>
@@ -780,6 +811,19 @@ function applyStarterPackage(pkg) {
   refreshPrepUI();
 }
 
+function acknowledgeDisclaimer() {
+  if (!S) return;
+  S.disclaimerAcknowledged = true;
+  document.getElementById("disclaimerModal").classList.remove("show");
+  document.getElementById("packageModal").classList.add("show");
+}
+
+function requireDisclaimer() {
+  if (S && S.disclaimerAcknowledged) return true;
+  document.getElementById("disclaimerModal").classList.add("show");
+  return false;
+}
+
 function refreshPrepUI() {
   const pkg = (GAME.starterPackages || []).find(p => p.id === S.selectedPackageId);
   const nameEl = document.getElementById("prepSummary");
@@ -817,6 +861,7 @@ function renderPackageCards() {
       <p class="pkg-includes">${pkg.includes || ""}</p>
       <p class="pkg-after">选后约剩 ${formatMoney(after)} · 负重约 ${estimatePackageWeight(pkg)} kg</p>`;
     card.onclick = () => {
+      if (!requireDisclaimer()) return;
       startBgmAutoplay();
       applyStarterPackage(pkg);
     };
@@ -854,6 +899,7 @@ function renderShop() {
 }
 
 function openAddonShop() {
+  if (!requireDisclaimer()) return;
   if (!S.selectedPackageId) {
     log("请先选一套出发套餐，再进商店加购。", "sys");
     return;
@@ -887,6 +933,7 @@ function buyShopItem(item) {
 }
 
 function finishShop() {
+  if (!requireDisclaimer()) return;
   if (!S.selectedPackageId) return;
   S.prepPhase = false;
   document.getElementById("packageModal").classList.remove("show");
@@ -945,6 +992,7 @@ function initState() {
     ended: false, bgmOn: true,
     gear: {}, baseWeight: 2.2,
     selectedPackageId: null, prepPhase: true,
+    disclaimerAcknowledged: false,
   };
 }
 
