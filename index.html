@@ -462,6 +462,7 @@ const ACH_DEFS = {
   blizzard_live: { title: "雪中行", desc: "遭遇暴雪并活着走完该段" },
   memorial_trail: { title: "山记得他们", desc: "途中发现 3 处 trail 警示彩蛋" },
   lawful_turnback: { title: "依法劝返", desc: "在沟口检查站被劝返，平安下山" },
+  slip_away: { title: "脚底抹油", desc: "检查站问询时发呆五秒，趁乱溜进山道（隐藏彩蛋）" },
 };
 
 const ALT_LEVEL_NAMES = ["无", "轻度", "中度", "重度"];
@@ -937,6 +938,58 @@ function pickInterceptQuestions() {
   return [pool[i]];
 }
 
+const LS_PRIOR_TURNBACK = "aotai_prior_turnback";
+let interceptSlipTimer = null;
+
+function hasPriorInterceptTurnback() {
+  try { return localStorage.getItem(LS_PRIOR_TURNBACK) === "1"; } catch { return false; }
+}
+
+function markPriorInterceptTurnback() {
+  try { localStorage.setItem(LS_PRIOR_TURNBACK, "1"); } catch {}
+}
+
+function clearInterceptSlipTimer() {
+  if (interceptSlipTimer != null) {
+    clearTimeout(interceptSlipTimer);
+    interceptSlipTimer = null;
+  }
+  const slip = document.getElementById("interceptSlipBtn");
+  if (slip) slip.remove();
+}
+
+function startInterceptSlipTimer() {
+  clearInterceptSlipTimer();
+  if (!hasPriorInterceptTurnback()) return;
+  interceptSlipTimer = setTimeout(() => {
+    interceptSlipTimer = null;
+    const modal = document.getElementById("interceptModal");
+    if (!modal || !modal.classList.contains("show")) return;
+    const box = document.getElementById("interceptOptions");
+    if (!box || document.getElementById("interceptSlipBtn")) return;
+    const btn = document.createElement("button");
+    btn.id = "interceptSlipBtn";
+    btn.type = "button";
+    btn.textContent = "溜走";
+    btn.title = "工作人员去拦下一辆车了……";
+    btn.style.textAlign = "left";
+    btn.style.marginTop = "6px";
+    btn.style.opacity = "0.92";
+    btn.onclick = () => chooseInterceptSlipAway();
+    box.appendChild(btn);
+  }, 5000);
+}
+
+function chooseInterceptSlipAway() {
+  if (S.ended) return;
+  clearInterceptSlipTimer();
+  document.getElementById("interceptModal").classList.remove("show");
+  S.checkpointPassed = true;
+  unlock("slip_away");
+  log("问询单举了半天，工作人员扭头去拦下一辆面包车——你<b>溜走</b>了，混进上山小径。", "bad");
+  afterInterceptPassed();
+}
+
 function beginInterceptCheckpoint() {
   if (S.checkpointPassed || S.ended) return;
   if (document.getElementById("interceptModal").classList.contains("show")) return;
@@ -971,9 +1024,11 @@ function renderInterceptQuestion() {
     btn.onclick = () => answerIntercept(idx);
     box.appendChild(btn);
   });
+  startInterceptSlipTimer();
 }
 
 function answerIntercept(choice) {
+  clearInterceptSlipTimer();
   const q = S.interceptQuiz[S.interceptIdx];
   if (choice === q.answer) S.interceptCorrect++;
   S.interceptIdx++;
@@ -982,6 +1037,7 @@ function answerIntercept(choice) {
 }
 
 function finishInterceptQuiz() {
+  clearInterceptSlipTimer();
   document.getElementById("interceptModal").classList.remove("show");
   const cfg = GAME.intercept || {};
   const need = cfg.minCorrect ?? 1;
@@ -999,6 +1055,7 @@ function finishInterceptQuiz() {
 }
 
 function resolveInterceptTurnback(reason) {
+  markPriorInterceptTurnback();
   const cfg = GAME.intercept || {};
   let fine = 0;
   if (Math.random() < (cfg.fineChance || 0.08)) {
