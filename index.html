@@ -154,6 +154,16 @@
   .shop-row .info { flex: 1; color: var(--muted); line-height: 1.4; }
   .shop-row .info b { color: var(--text); }
   .shop-row.owned { border-color: #3d6b4f; opacity: .85; }
+  .warn-box {
+    font-size: 12px; color: var(--muted); line-height: 1.55;
+    border: 1px solid #4a3030; background: #1a1518; border-radius: 8px;
+    padding: 10px 12px; margin: 10px 0;
+  }
+  .warn-box b { color: #f0a0a8; }
+  .stat-grid { font-size: 13px; color: var(--muted); line-height: 1.6; }
+  .stat-grid b { color: var(--text); }
+  header .meta .sig-off b { color: var(--bad); }
+  header .meta .sig-on b { color: var(--good); }
   .pkg-grid { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
   button.pkg-card {
     width: 100%; font: inherit; color: inherit;
@@ -200,6 +210,9 @@
     <span>水 <b id="mWater">—</b></span>
     <span>负重 <b id="mWeight">—</b></span>
     <span>天气 <b id="mWeather">—</b></span>
+    <span>高反 <b id="mAlt">—</b></span>
+    <span id="mSignalWrap" class="sig-on">信号 <b id="mSignal">—</b></span>
+    <span>电量 <b id="mPhone">—</b></span>
     <span>日 <b id="mDay">—</b></span>
   </div>
 </header>
@@ -250,6 +263,7 @@
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
       <button class="primary" id="btnDepart" onclick="finishShop()" disabled>出发上山</button>
       <button type="button" onclick="openAddonShop()">额外补给</button>
+      <button type="button" onclick="showCasualties()">伤亡与警示</button>
       <button onclick="showAchievements()">成就</button>
     </div>
   </div>
@@ -262,6 +276,7 @@
     <div class="shop-grid" id="shopGrid"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
       <button class="primary" onclick="closeAddonShop()">返回出发准备</button>
+      <button type="button" onclick="showCasualties()">伤亡与警示</button>
     </div>
   </div>
 </div>
@@ -269,9 +284,11 @@
   <div class="modal">
     <h2 id="endTitle"></h2>
     <p id="endBody" style="font-size:14px;line-height:1.5"></p>
+    <div class="stat-grid" id="endLocalStats" style="margin:10px 0"></div>
     <ul id="endAchs"></ul>
     <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
       <button class="primary" onclick="location.reload()">再来一局</button>
+      <button onclick="showCasualties()">伤亡与警示</button>
       <button onclick="showAchievements()">成就一览</button>
     </div>
   </div>
@@ -280,7 +297,28 @@
   <div class="modal">
     <h2>成就</h2>
     <ul id="achList"></ul>
-    <div style="margin-top:14px"><button onclick="document.getElementById('achModal').classList.remove('show')">关闭</button></div>
+    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="showCasualties()">伤亡与警示</button>
+      <button onclick="document.getElementById('achModal').classList.remove('show')">关闭</button>
+    </div>
+  </div>
+</div>
+<div class="modal-bg" id="interceptModal">
+  <div class="modal">
+    <h2>沟口检查站 · 拦截劝返</h2>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 10px">森林公安与保护区工作人员拦下你：「鳌太线禁止非法穿越，请接受安全问询。」</p>
+    <p id="interceptProgress" style="font-size:12px;color:var(--accent);margin:0 0 8px"></p>
+    <p id="interceptQuestion" style="font-size:14px;line-height:1.5;margin:0 0 12px"></p>
+    <div id="interceptOptions" style="display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+</div>
+<div class="modal-bg" id="casualtyModal">
+  <div class="modal">
+    <h2>伤亡与警示</h2>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 8px">以下为公开报道汇总，用于提醒风险，非完整统计。现实里请敬畏山、守法穿越。</p>
+    <div class="warn-box" id="casualtyHistorical"></div>
+    <div class="stat-grid" id="casualtyLocal"></div>
+    <div style="margin-top:14px"><button onclick="document.getElementById('casualtyModal').classList.remove('show')">关闭</button></div>
   </div>
 </div>
 <script src="map3d.js"></script>
@@ -312,9 +350,400 @@ const ACH_DEFS = {
   no_buy: { title: "苦行僧", desc: "全程未在补给点花钱并通关或下撤成功" },
   camp_10: { title: "梁上露宿", desc: "累计扎营 5 次" },
   blizzard_live: { title: "雪中行", desc: "遭遇暴雪并活着走完该段" },
+  memorial_trail: { title: "山记得他们", desc: "途中发现 3 处 trail 警示彩蛋" },
+  lawful_turnback: { title: "依法劝返", desc: "在沟口检查站被劝返，平安下山" },
 };
 
+const ALT_LEVEL_NAMES = ["无", "轻度", "中度", "重度"];
+const FAIL_CAUSES = {
+  stamina: "体力耗尽",
+  altitude: "高原反应",
+  hypothermia: "失温",
+  fall: "坠崖",
+};
+
+const CASUALTY_HISTORICAL_HTML = `
+<ul style="margin:0;padding-left:18px">
+  <li><b>2002–2008</b>：公开报道约 41 人遇险、14 人遇难</li>
+  <li><b>2012–2017</b>：约 46 人失踪或遇难（媒体报道汇总）</li>
+  <li><b>2018–2024</b>：至少 12 人遇难（不完全统计）</li>
+  <li><b>2025–2026 初</b>：失温、失联、遇难事件仍时有发生</li>
+  <li><b>常见诱因</b>：失温、高原反应、坠崖</li>
+  <li><b>2026 年 1 月示例</b>：媒体报道 4 人失联 → 1 人获救、3 人遇难（请以官方通报为准）</li>
+  <li><b>2018–2022</b>：公开报道约 1785 人次被劝返、105 起行政处罚</li>
+</ul>
+<p style="margin:8px 0 0;font-size:12px">本游戏数据为静态背景警示，不代表实时或完整统计。</p>`;
+
 let S;
+
+function gameTimeHours() { return S.day * 24 + S.hour; }
+
+function mechAlt() {
+  return (GAME.mechanics && GAME.mechanics.altitude) || { onset_m: 3300, severe_m: 3500, recover_below_m: 3000, camp_high_m: 3400 };
+}
+function mechSignal() {
+  return (GAME.mechanics && GAME.mechanics.signal) || { min_hours: 2, max_hours: 7, retreat_extra_hours: 3, retreat_cost_mult: 1.25 };
+}
+
+function pointSignalRisk(p) {
+  if (!p) return 0;
+  if (p.signal_risk != null) return p.signal_risk;
+  if (p.supply) return 0;
+  if (p.alt_m >= 3500) return 4;
+  if (p.alt_m >= 3300) return 3;
+  return Math.min(2, p.weather_risk || 1);
+}
+
+function isStoneSeaPoint(p) {
+  return !!(p && (p.stone_sea || /石海|万仙阵/.test(p.name || "")));
+}
+
+function loadDeathStats() {
+  try { return JSON.parse(localStorage.getItem("aotai_deaths") || "{}"); } catch { return {}; }
+}
+function saveDeathStats(d) { localStorage.setItem("aotai_deaths", JSON.stringify(d)); }
+
+function recordDeath(cause) {
+  const d = loadDeathStats();
+  d.total = (d.total || 0) + 1;
+  const key = FAIL_CAUSES[cause] ? cause : "stamina";
+  d[key] = (d[key] || 0) + 1;
+  saveDeathStats(d);
+}
+
+function formatLocalDeathStats() {
+  const d = loadDeathStats();
+  const total = d.total || 0;
+  return `本机失败次数：<b>${total}</b>（体力 ${d.stamina || 0} · 高反 ${d.altitude || 0} · 失温 ${d.hypothermia || 0} · 坠崖 ${d.fall || 0}）`;
+}
+
+function showCasualties() {
+  document.getElementById("casualtyHistorical").innerHTML = CASUALTY_HISTORICAL_HTML;
+  document.getElementById("casualtyLocal").innerHTML = formatLocalDeathStats();
+  document.getElementById("casualtyModal").classList.add("show");
+}
+
+function altitudeMitigation() {
+  let gainReduce = 0, stamR = 0, relief = 0;
+  if (hasGear("rhodiola")) gainReduce += 0.35;
+  if (hasGear("painkiller")) stamR += (GAME.gear.painkiller && GAME.gear.painkiller.altitudeStamReduce) || 5;
+  if (hasGear("oxygen")) relief = 1;
+  return { gainReduce, stamR, relief };
+}
+
+function updateAltitudeLevel() {
+  const exp = S.altExposure;
+  if (exp < 18) S.altLevel = 0;
+  else if (exp < 42) S.altLevel = 1;
+  else if (exp < 72) S.altLevel = 2;
+  else S.altLevel = 3;
+}
+
+function applyAltitudeOnSegment(from, to, hours) {
+  const cfg = mechAlt();
+  const alt = Math.max(from.alt_m, to.alt_m);
+  const mit = altitudeMitigation();
+  let gain = 0;
+  if (alt >= cfg.onset_m) {
+    gain += hours * (0.8 + (alt - cfg.onset_m) / 800);
+    if (alt >= cfg.severe_m) gain += hours * 0.45;
+  }
+  const climb = to.alt_m - from.alt_m;
+  if (climb > 350) {
+    gain += 10 + (climb - 350) / 40;
+    log(`短时间内爬升约 ${Math.round(climb)} m，头痛像箍在太阳穴上。`, "bad");
+  }
+  if (gain > 0) {
+    S.altExposure += gain * (1 - mit.gainReduce);
+    if (hasGear("rhodiola") && Math.random() < 0.22) {
+      const g = S.gear.rhodiola;
+      if (g && g.uses > 0) { g.uses--; if (g.uses <= 0) log("红景天已吃完。", "sys"); }
+    }
+  }
+  if (to.alt_m < cfg.recover_below_m) S.altExposure = Math.max(0, S.altExposure - 14);
+  else if (to.alt_m < cfg.onset_m) S.altExposure = Math.max(0, S.altExposure - 8);
+  updateAltitudeLevel();
+  if (S.altLevel >= 3 && S.altExposure > 88 && Math.random() < 0.35) {
+    log("<b>高原反应恶化</b>：呕吐、步态不稳，再硬撑可能下不了山。", "bad");
+    S.stam -= 12;
+    if (S.altExposure > 96 && S.stam <= 18) {
+      failGame("altitude", "高原反应恶化", "你在高海拔呕吐脱水，意识模糊。救援队很难在无信号区定位你——这一局以悲剧收场。现实里请逐级适应、及时下撤。");
+      return true;
+    }
+  }
+  return false;
+}
+
+function altitudeMoveMult() {
+  if (!S.altLevel) return 1;
+  return 1 + S.altLevel * 0.06 + (S.altLevel >= 3 ? 0.08 : 0);
+}
+
+function altitudeStamExtra() {
+  if (!S.altLevel) return 0;
+  const mit = altitudeMitigation();
+  return Math.max(0, S.altLevel * 3 + (S.altLevel >= 2 ? 2 : 0) - mit.stamR);
+}
+
+function maybeAltitudeSymptomLog() {
+  if (S.altLevel < 1 || Math.random() > 0.38) return;
+  const msgs = [
+    "太阳穴突突跳，像有人在里面敲鼓。",
+    "恶心反胃，闻见食物味就想吐。",
+    "呼吸变快却总觉得气不够。",
+  ];
+  if (S.altLevel >= 2) msgs.push("走路发飘，像踩在棉花上。");
+  log("高反：" + msgs[Math.floor(Math.random() * msgs.length)], "bad");
+}
+
+function applyAltitudeCamp(p) {
+  const cfg = mechAlt();
+  if (p.alt_m >= cfg.camp_high_m) {
+    S.altExposure += 9;
+    updateAltitudeLevel();
+    if (Math.random() < 0.45 + S.altLevel * 0.1) {
+      log("高海拔过夜：头疼难眠，翻来覆去只听见自己的心跳。", "bad");
+      return 8;
+    }
+  } else if (p.alt_m < cfg.onset_m) {
+    S.altExposure = Math.max(0, S.altExposure - 16);
+    updateAltitudeLevel();
+  }
+  return 0;
+}
+
+function gpsEffective() {
+  if (!hasGear("gps")) return false;
+  if (S.phoneBattery <= 0) return false;
+  if (S.signalOut && S.phoneBattery < 20) return false;
+  return true;
+}
+
+function signalStatusText() {
+  if (S.signalOut) return "中断";
+  const r = pointSignalRisk(cur());
+  if (r >= 4) return "极弱";
+  if (r >= 2) return "不稳";
+  return "可用";
+}
+
+function beginSignalBlackout(hours, reason) {
+  S.signalOut = true;
+  S.signalUntil = gameTimeHours() + hours;
+  log(`<b>信号中断</b>：${reason || "进入无覆盖区"}，约 ${hours.toFixed(1)} h 内难以联络外界。`, "bad");
+}
+
+function advanceSignalClock(hours) {
+  if (S.signalOut && gameTimeHours() >= S.signalUntil) {
+    S.signalOut = false;
+    log("手机终于搜到一格信号——仍不稳定，但能尝试联系外界了。", "good");
+  }
+}
+
+function rollSignalBlackout(from, to) {
+  if (S.signalOut) return;
+  const risk = Math.max(pointSignalRisk(from), pointSignalRisk(to));
+  if (risk < 2) return;
+  const chance = 0.05 + risk * 0.028 + (to.alt_m >= 3500 ? 0.04 : 0);
+  if (Math.random() > chance) return;
+  const cfg = mechSignal();
+  const h = cfg.min_hours + Math.random() * (cfg.max_hours - cfg.min_hours);
+  beginSignalBlackout(h, "梁顶/石海一带基站覆盖薄弱");
+}
+
+function drainPhoneBattery(moveSegment) {
+  let drain = moveSegment ? 3 : 1;
+  if (hasGear("gps") && moveSegment) drain += 2;
+  if (S.signalOut) drain += 1;
+  S.phoneBattery = Math.max(0, S.phoneBattery - drain);
+  if (S.phoneBattery === 0) log("手机没电了——无信号时更难判断方位。", "bad");
+}
+
+function usePowerBank() {
+  const g = S.gear.powerbank;
+  const def = GAME.gear.powerbank;
+  if (!g || !def || g.uses <= 0) return;
+  g.uses--;
+  S.phoneBattery = Math.min(100, S.phoneBattery + (def.phoneCharge || 40));
+  log(`使用充电宝，电量约 ${S.phoneBattery}%。`, "good");
+  if (g.uses <= 0) log("充电宝已用尽。", "sys");
+  refreshMeta(); renderActions();
+}
+
+function useAltitudeMeds() {
+  let used = false;
+  if (hasGear("oxygen")) {
+    const g = S.gear.oxygen;
+    const def = GAME.gear.oxygen;
+    g.uses--;
+    S.altExposure = Math.max(0, S.altExposure - (def.altitudeRelief || 2) * 14);
+    updateAltitudeLevel();
+    log("吸了几口氧气，胸闷稍缓。", "good");
+    used = true;
+    if (g.uses <= 0) log("氧气瓶空了。", "sys");
+  } else if (hasGear("painkiller")) {
+    log("止疼药只能缓解症状，不能代替下撤。", "sys");
+    used = true;
+  } else {
+    return log("没有高反相关药品。", "sys");
+  }
+  if (used) { refreshMeta(); renderActions(); }
+}
+
+function waitForSignal() {
+  if (!S.signalOut) return log("当前有信号，不必等待。", "sys");
+  const wait = Math.min(4, Math.max(1.5, S.signalUntil - gameTimeHours()));
+  tickNeeds(wait);
+  advanceSignalClock(0);
+  drainPhoneBattery(false);
+  log(`你原地等待信号恢复（约 ${wait.toFixed(1)} h），荒野里只有风声。`, "evt");
+  refreshMeta(); renderActions();
+}
+
+function rollTrailFind(p) {
+  const pool = GAME.trailFinds || [];
+  if (!pool.length) return;
+  for (const f of pool) {
+    if (S.foundTrail.has(f.id)) continue;
+    if (!f.pointIds || !f.pointIds.includes(p.id)) continue;
+    if (Math.random() > (f.chance || 0.1)) continue;
+    S.foundTrail.add(f.id);
+    log(`<b>路旁痕迹</b>：${f.log}`, "sys");
+    if (S.foundTrail.size >= 3) unlock("memorial_trail");
+    break;
+  }
+}
+
+function isMinimalLoadout() {
+  if (S.selectedPackageId === "minimal") return true;
+  const spent = (S.startMoney || PREP_INIT.money) - S.money;
+  const gearN = Object.keys(S.gear).length;
+  return spent < 130 && gearN <= 3 && totalWeightKg() < 8.5;
+}
+
+function interceptStrictnessBonus() {
+  let b = 0;
+  if (isMinimalLoadout()) b += 0.14;
+  if (S.holidayCheck) b += 0.12;
+  return b;
+}
+
+function pickInterceptQuestions() {
+  const cfg = GAME.intercept || {};
+  const pool = [...(cfg.questions || [])];
+  const n = cfg.questionCount || 3;
+  const picked = [];
+  while (picked.length < n && pool.length) {
+    const i = Math.floor(Math.random() * pool.length);
+    picked.push(pool.splice(i, 1)[0]);
+  }
+  return picked;
+}
+
+function beginInterceptCheckpoint() {
+  if (S.checkpointPassed || S.ended) return;
+  if (document.getElementById("interceptModal").classList.contains("show")) return;
+  S.interceptCorrect = 0;
+  S.interceptIdx = 0;
+  S.interceptQuiz = pickInterceptQuestions();
+  if (!S.interceptQuiz.length) {
+    S.checkpointPassed = true;
+    return afterInterceptPassed();
+  }
+  document.getElementById("interceptModal").classList.add("show");
+  renderInterceptQuestion();
+}
+
+function renderInterceptQuestion() {
+  const qs = S.interceptQuiz;
+  const i = S.interceptIdx;
+  const cfg = GAME.intercept || {};
+  document.getElementById("interceptProgress").textContent =
+    `第 ${i + 1}/${qs.length} 题 · 需答对至少 ${cfg.minCorrect || 2} 题`;
+  const q = qs[i];
+  document.getElementById("interceptQuestion").textContent = q.q;
+  const box = document.getElementById("interceptOptions");
+  box.innerHTML = "";
+  q.options.forEach((opt, idx) => {
+    const btn = document.createElement("button");
+    btn.textContent = opt;
+    btn.style.textAlign = "left";
+    btn.onclick = () => answerIntercept(idx);
+    box.appendChild(btn);
+  });
+}
+
+function answerIntercept(choice) {
+  const q = S.interceptQuiz[S.interceptIdx];
+  if (choice === q.answer) S.interceptCorrect++;
+  S.interceptIdx++;
+  if (S.interceptIdx >= S.interceptQuiz.length) finishInterceptQuiz();
+  else renderInterceptQuestion();
+}
+
+function finishInterceptQuiz() {
+  document.getElementById("interceptModal").classList.remove("show");
+  const cfg = GAME.intercept || {};
+  const need = cfg.minCorrect || 2;
+  const strict = interceptStrictnessBonus();
+  const quizFail = S.interceptCorrect < need;
+  const randomTurn = Math.random() < ((cfg.randomTurnbackBase || 0.1) + strict);
+  if (quizFail || randomTurn) {
+    const reason = quizFail
+      ? "安全问询未达要求，工作人员坚持劝返。"
+      : "抽检升级：今日加派警力，你未能「溜」进山。";
+    resolveInterceptTurnback(reason);
+    return;
+  }
+  const slip = (cfg.slipThroughBase || 0.52) - strict * 0.35;
+  if (Math.random() > Math.max(0.12, slip)) {
+    resolveInterceptTurnback("值班人员决定今日不放行，请改走合法景区线路。");
+    return;
+  }
+  S.checkpointPassed = true;
+  afterInterceptPassed();
+}
+
+function resolveInterceptTurnback(reason) {
+  const cfg = GAME.intercept || {};
+  let fine = 0;
+  if (Math.random() < (cfg.fineChance || 0.08)) {
+    fine = cfg.fineAmount || 200;
+    S.money -= fine;
+  }
+  unlock("lawful_turnback");
+  log(`<b>劝返</b>：${reason}`, "good");
+  const fineNote = fine ? `另被处以行政处罚约 ¥${fine}（2018–2022 公开报道累计劝返 1785 人次、处罚 105 起）。` : "未罚款，现金基本保留。";
+  endGame(true, "劝返成功 · 官方结局",
+    `你被依法劝返塘口，没有进入禁区。剩余现金 ${formatMoney(S.money)}。${fineNote}活着离开，就是这一局最好的结局。`);
+}
+
+function afterInterceptPassed() {
+  log("检查站人声嘈杂，你趁换班空隙混进上山小径——<b>这仍是非法穿越</b>，现实里请走合法路线。", "bad");
+  log("2018 年起鳌太线全面禁止非法穿越；公开报道显示沟口常年设卡劝返。", "sys");
+  refreshMeta(); drawMap(); renderActions();
+  if (typeof AotaiMap3D !== "undefined") setTimeout(() => AotaiMap3D.resize(), 80);
+}
+
+const SHOP_PRESETS = {
+  minimal: [],
+  standard: ["food_6", "water_5", "shell", "headlamp"],
+  safe: ["food_12", "water_10", "shell", "rain_pants", "tarp", "pad", "headlamp", "gps", "rhodiola"],
+};
+
+function applyShopPreset(id) {
+  initState();
+  S.loadoutPreset = id;
+  S.money = 600;
+  S.food = 4;
+  S.water = 3;
+  S.gear = {};
+  (SHOP_PRESETS[id] || []).forEach(sid => {
+    const item = (GAME.shop || []).find(x => x.id === sid);
+    if (item) buyShopItem(item);
+  });
+  renderShop();
+}
 
 function buildRetreats(points) {
   const retreats = {};
@@ -410,13 +839,18 @@ function weightStamPenalty() {
 
 function mitigationFor(weatherId) {
   let stamR = 0, multR = 0;
+  const gpsOk = gpsEffective();
   Object.keys(S.gear).forEach(gid => {
     if (!hasGear(gid)) return;
     const def = GAME.gear[gid];
     if (!def) return;
+    if (gid === "gps" && !gpsOk) return;
     if (def.mitigate && def.mitigate.includes(weatherId)) {
-      stamR += def.stamReduce || 0;
-      multR += def.multReduce || 0;
+      let sr = def.stamReduce || 0;
+      let mr = def.multReduce || 0;
+      if (gid === "gps" && S.signalOut) { sr *= 0.45; mr *= 0.45; }
+      stamR += sr;
+      multR += mr;
     }
   });
   return { stamR, multR: Math.min(0.45, multR) };
@@ -436,12 +870,20 @@ function weatherPick(risk) {
   return WEATHERS.clear;
 }
 
-function rollSuddenEmergency(risk) {
+function rollSuddenEmergency(risk, atPoint) {
   const pool = GAME.emergencies || [];
   if (!pool.length) return null;
-  const base = 0.12 + risk * 0.035;
+  const p = atPoint || cur();
+  let base = 0.12 + risk * 0.035;
+  if (isStoneSeaPoint(p) && !gpsEffective()) base += 0.06;
+  if (S.hypo >= 2) base += 0.03;
   if (Math.random() > base) return null;
-  const eligible = pool.filter(e => risk >= (e.minRisk || 1));
+  const eligible = pool.filter(e => {
+    if (risk < (e.minRisk || 1)) return false;
+    if (e.needsStoneSea && !isStoneSeaPoint(p)) return false;
+    if (e.id === "stone_lost" && gpsEffective()) return Math.random() < 0.35;
+    return true;
+  });
   if (!eligible.length) return null;
   const sum = eligible.reduce((s, e) => s + (e.weight || 1), 0);
   let pick = Math.random() * sum;
@@ -452,21 +894,45 @@ function rollSuddenEmergency(risk) {
   return eligible[eligible.length - 1];
 }
 
-function applyEmergency(evt, risk) {
-  const wid = evt.weather || "storm";
-  S.weather = WEATHERS[wid] || WEATHERS.storm;
-  const mit = mitigationFor(wid);
+function applyEmergency(evt, risk, atPoint) {
+  const p = atPoint || cur();
+  if (evt.needsStoneSea && !isStoneSeaPoint(p)) return false;
+  const wid = evt.weather;
+  if (wid) {
+    S.weather = WEATHERS[wid] || WEATHERS.storm;
+  }
+  const mit = wid ? mitigationFor(wid) : { stamR: 0, multR: 0 };
   let extraStam = Math.max(0, Math.round((evt.stam || 10) - mit.stamR));
-  const multBump = Math.max(0, (evt.mult || 0.2) * (1 - mit.multR));
-  S.weather = { ...S.weather, mult: S.weather.mult + multBump };
+  if (evt.effect === "hypothermia") {
+    S.hypo = Math.min(3, (S.hypo || 0) + 1);
+  } else if (wid && ["rain", "heavy_rain", "snow", "blizzard"].includes(wid) && p.alt_m >= 2800 && Math.random() < 0.35) {
+    S.hypo = Math.min(3, (S.hypo || 0) + 1);
+  }
+  if (wid) {
+    const multBump = Math.max(0, (evt.mult || 0.2) * (1 - mit.multR));
+    S.weather = { ...S.weather, mult: S.weather.mult + multBump };
+  } else if (evt.mult) {
+    S.weather = { ...S.weather, mult: (S.weather.mult || 1) + evt.mult * 0.5 };
+  }
+  if (evt.effect === "stone_lost" && !gpsEffective() && isStoneSeaPoint(p)) extraStam += 6;
   S.stam = Math.max(0, S.stam - extraStam);
   log(`<b>突发：${evt.name}</b> — ${evt.log}`, "bad");
+  if (S.hypo >= 1) log(`失温状态：${["无", "轻度", "中度", "重度"][S.hypo] || "轻度"}`, "bad");
   if (mit.stamR > 0) log("装备减轻了部分冲击。", "good");
   if (wid === "blizzard" || wid === "storm") {
     if (S.stam > 0) unlock("storm_survive");
     if (wid === "blizzard" && S.stam > 0) unlock("blizzard_live");
   }
-  consumeGearOnEvent(wid);
+  if (wid) consumeGearOnEvent(wid);
+  if (evt.effect === "fall" && (S.stam <= 8 || Math.random() < 0.22)) {
+    failGame("fall", "坠崖", "岩脊滑落，救援在无信号区极难展开。这一局以悲剧收场——现实里请远离暴露崖缘。");
+    return true;
+  }
+  if (S.hypo >= 3 && S.stam <= 25 && Math.random() < 0.4) {
+    failGame("hypothermia", "失温", "体温持续下降，你再也暖不起来。公开报道里，失温是鳌太最常见的致命原因之一。");
+    return true;
+  }
+  return false;
 }
 
 function consumeGearOnEvent(weatherId) {
@@ -533,6 +999,16 @@ function refreshMeta() {
   document.getElementById("mWater").textContent = S.water;
   document.getElementById("mWeight").textContent = totalWeightKg() + "kg";
   document.getElementById("mWeather").textContent = S.weather.name;
+  const altEl = document.getElementById("mAlt");
+  if (altEl) altEl.textContent = ALT_LEVEL_NAMES[S.altLevel || 0] + (S.hypo ? "·失温" + S.hypo : "");
+  const sigEl = document.getElementById("mSignal");
+  const sigWrap = document.getElementById("mSignalWrap");
+  if (sigEl) sigEl.textContent = signalStatusText();
+  if (sigWrap) {
+    sigWrap.className = S.signalOut ? "sig-off" : "sig-on";
+  }
+  const ph = document.getElementById("mPhone");
+  if (ph) ph.textContent = (S.phoneBattery ?? 100) + "%";
   document.getElementById("mDay").textContent = S.day + " · " + S.hour.toFixed(1) + "h";
 }
 
@@ -556,8 +1032,9 @@ function drawMap() {
   AotaiMap3D.update(S.idx, w, pts);
   const loc = document.getElementById("mapLoc");
   if (loc && p) {
+    const sig = S.signalOut ? "信号中断" : ("信号" + signalStatusText());
     const km = progressKm(S.idx).toFixed(1);
-    loc.innerHTML = `<b>${p.name}</b> · ${p.alt_m}m · 约 ${km} km<br/><span style="color:var(--muted);font-size:11px">卫星示意 · 绿点为当前位置</span>`;
+    loc.innerHTML = `<b>${p.name}</b> · ${p.alt_m}m · 约 ${km} km · ${sig}<br/><span style="color:var(--muted);font-size:11px">卫星示意 · 绿点为当前位置</span>`;
   }
 }
 
@@ -578,7 +1055,11 @@ function renderActions() {
     if (p.price_rest) btns.push(`<button onclick="buy('rest')">住店过夜 ¥${p.price_rest}</button>`);
   }
   if (p.retreat) btns.push(`<button class="danger" onclick="doRetreat()">下撤：${p.retreat.name}</button>`);
+  if (S.signalOut) btns.push(`<button onclick="waitForSignal()">等待信号</button>`);
+  if (hasGear("oxygen") || hasGear("painkiller")) btns.push(`<button onclick="useAltitudeMeds()">高反用药</button>`);
+  if (hasGear("powerbank")) btns.push(`<button onclick="usePowerBank()">充电宝</button>`);
   btns.push(`<button onclick="showGear()">装备</button>`);
+  btns.push(`<button onclick="showCasualties()">伤亡与警示</button>`);
   btns.push(`<button onclick="showAchievements()">成就</button>`);
   box.innerHTML = btns.join("");
 }
@@ -601,32 +1082,65 @@ function tickNeeds(hours, opts = {}) {
   }
   S.hour += hours;
   while (S.hour >= 24) { S.hour -= 24; S.day++; }
+  advanceSignalClock(0);
+}
+
+function failGame(cause, title, body) {
+  S.failCause = cause;
+  endGame(false, title, body, cause);
 }
 
 function checkFail() {
   if (S.stam <= 0) {
-    endGame(false, "体力耗尽", "你倒在梁上。这一次没有走到终点——但活着下撤也是胜利，下次早作决定。");
+    let cause = S.failCause || "stamina";
+    if (S.hypo >= 3) cause = "hypothermia";
+    else if (S.altLevel >= 3 && S.altExposure > 90) cause = "altitude";
+    const titles = {
+      stamina: "体力耗尽",
+      altitude: "高原反应失控",
+      hypothermia: "失温",
+      fall: "坠崖",
+    };
+    const bodies = {
+      stamina: "你倒在梁上。这一次没有走到终点——但活着下撤也是胜利，下次早作决定。",
+      altitude: "高反恶化，你在梁顶失去行动能力。无信号区救援代价极高。",
+      hypothermia: "失温让你再也暖不起来。公开报道里，这是鳌太最常见的致命原因之一。",
+      fall: "滑落崖缘，这一局以悲剧收场。",
+    };
+    failGame(cause, titles[cause] || titles.stamina, bodies[cause] || bodies.stamina);
     return true;
   }
   return false;
 }
 
 function goNext() {
+  if (!S.checkpointPassed) return beginInterceptCheckpoint();
   const from = cur();
   const to = DATA.points[S.idx + 1];
   const risk = Math.max(from.weather_risk, to.weather_risk);
   S.weather = weatherPick(risk);
   const mit = mitigationFor(S.weather.id);
-  let hours = to.hours_base * S.weather.mult * (1 - mit.multR);
-  const stamCost = Math.round(8 + to.weather_risk * 2 + S.weather.stam + (S.food < 2 ? 3 : 0) + weightStamPenalty() - mit.stamR);
+  let hours = to.hours_base * S.weather.mult * (1 - mit.multR) * altitudeMoveMult();
+  if (S.hypo >= 2) hours *= 1.08;
+  if (S.signalOut && isStoneSeaPoint(to) && !gpsEffective()) hours *= 1.12;
+  const stamCost = Math.round(8 + to.weather_risk * 2 + S.weather.stam + (S.food < 2 ? 3 : 0) + weightStamPenalty() + altitudeStamExtra() + (S.hypo || 0) * 2 - mit.stamR);
   S.stam = Math.max(0, S.stam - Math.max(3, stamCost));
   tickNeeds(hours);
-  const emerg = rollSuddenEmergency(risk);
-  if (emerg) applyEmergency(emerg, risk);
+  drainPhoneBattery(true);
+  rollSignalBlackout(from, to);
+  if (applyAltitudeOnSegment(from, to, hours)) return;
+  const emerg = rollSuddenEmergency(risk, to);
+  if (emerg && applyEmergency(emerg, risk, to)) return;
   S.idx++;
   if (S.idx === 1) unlock("first_step");
   if (to.id === 29) unlock("peak");
+  maybeAltitudeSymptomLog();
+  rollTrailFind(to);
   log(`你从「${from.name}」→「${to.name}」（${to.km_from_prev} km，约 ${hours.toFixed(1)} h）。天气：${S.weather.name}。体力 -${Math.max(3, stamCost)}。`, "evt");
+  if (S.signalOut) log("手机无信号：无法呼救，只能靠自己判断下撤时机。", "bad");
+  if (!gpsEffective() && (S.weather.id === "fog" || S.weather.id === "whiteout") && isStoneSeaPoint(to)) {
+    log("雾中石海：没有可靠 GPS/电量，迷路风险陡增。", "bad");
+  }
   if (to.notes) log(to.notes, "sys");
   if (checkFail()) return;
   if (to.id === 36) {
@@ -644,6 +1158,12 @@ function camp() {
   const mode = campMode(p);
   const supplyPenalty = spendCampSupplies(mode);
   let bonus = mode === "camp" ? 35 : (mode === "bivy" ? 28 : 20);
+  bonus -= applyAltitudeCamp(p);
+  if (S.hypo >= 1) {
+    bonus -= S.hypo * 5;
+    if (hasGear("hot_pack") && Math.random() < 0.5) { S.hypo = Math.max(0, S.hypo - 1); log("暖宝宝稍微拉回体温。", "good"); }
+    else if (hasGear("stove") && hasGear("fuel")) { S.hypo = Math.max(0, S.hypo - 1); log("炉头热水帮助缓解失温。", "good"); }
+  }
   ["pad", "bivy", "tarp", "stove", "fuel"].forEach(gid => {
     const def = GAME.gear[gid];
     if (!hasGear(gid) || !def) return;
@@ -660,8 +1180,10 @@ function camp() {
   S.camps++;
   if (S.camps >= 5) unlock("camp_10");
   S.weather = weatherPick(p.weather_risk);
-  const nightEmerg = rollSuddenEmergency(p.weather_risk + 1);
-  if (nightEmerg && Math.random() < 0.55) applyEmergency(nightEmerg, p.weather_risk);
+  drainPhoneBattery(false);
+  advanceSignalClock(0);
+  const nightEmerg = rollSuddenEmergency(p.weather_risk + 1, p);
+  if (nightEmerg && Math.random() < 0.55 && applyEmergency(nightEmerg, p.weather_risk, p)) return;
   log(`在「${p.name}」${campModeLabel(mode)}。体力 +${bonus}（已计粮水消耗），新一天天气：${S.weather.name}。`, "good");
   if (checkFail()) return;
   refreshMeta(); drawMap(); renderActions();
@@ -698,26 +1220,37 @@ function doRetreat() {
   const p = cur();
   if (!p.retreat) return;
   const r = p.retreat;
-  const before = S.money;
-  S.money -= r.cost;
-  S.spentAny = true;
-  if (before < r.cost) {
-    log(`包车/向导费约 ¥${r.cost}，现金只有 ¥${before}——先下山，费用事后补缴。`, "evt");
+  const cfg = mechSignal();
+  let hours = r.hours;
+  let cost = r.cost;
+  if (S.signalOut) {
+    hours += cfg.retreat_extra_hours || 3;
+    cost = Math.round(cost * (cfg.retreat_cost_mult || 1.25));
+    log("无信号：联系包车/救援困难，你在原地多等了许久才摸到微弱信号。", "bad");
   }
-  tickNeeds(r.hours);
+  const before = S.money;
+  S.money -= cost;
+  S.spentAny = true;
+  if (before < cost) {
+    log(`包车/向导费约 ¥${cost}，现金只有 ¥${before}——先下山，费用事后补缴。`, "evt");
+  }
+  tickNeeds(hours);
   S.discoveredRetreats.add(r.id);
   const found = JSON.parse(localStorage.getItem("aotai_retreats") || "[]");
   if (!found.includes(r.id)) { found.push(r.id); localStorage.setItem("aotai_retreats", JSON.stringify(found)); }
   if (found.length >= 6) unlock("retreat_explorer");
   unlock("retreat_ok");
   const moneyNote = S.money < 0
-    ? `车费 ¥${r.cost}，当前欠费 ${formatMoney(S.money)}（下山后补缴）。`
-    : `车费 ¥${r.cost}，剩余 ${formatMoney(S.money)}。`;
+    ? `车费 ¥${cost}，当前欠费 ${formatMoney(S.money)}（下山后补缴）。`
+    : `车费 ¥${cost}，剩余 ${formatMoney(S.money)}。`;
   endGame(true, "下撤成功 · Good Ending", `你从「${r.name}」安全出山。${moneyNote}活着回来也是通关。`);
 }
 
-function endGame(good, title, body) {
+function endGame(good, title, body, deathCause) {
   S.ended = true;
+  if (!good) recordDeath(deathCause || S.failCause || "stamina");
+  const statsEl = document.getElementById("endLocalStats");
+  if (statsEl) statsEl.innerHTML = formatLocalDeathStats();
   refreshMeta(); drawMap(); renderActions();
   document.getElementById("endTitle").textContent = title;
   document.getElementById("endBody").textContent = body;
@@ -922,6 +1455,9 @@ function shopDesc(item) {
   if (def.mitigate) return "应对：" + def.mitigate.map(id => (WEATHERS[id] || { name: id }).name).join("、");
   if (def.campAny) return "允许非营地应急过夜";
   if (def.nightBonus) return "提升过夜恢复";
+  if (def.altitudeGuard) return "减缓高原反应累积";
+  if (def.altitudeRelief) return "缓解高反症状（消耗品）";
+  if (def.phoneCharge) return "为手机/GPS 补电";
   return "";
 }
 
@@ -935,14 +1471,15 @@ function buyShopItem(item) {
 function finishShop() {
   if (!requireDisclaimer()) return;
   if (!S.selectedPackageId) return;
+  S.shopSpentAtStart = (S.startMoney || PREP_INIT.money) - S.money;
   S.prepPhase = false;
   document.getElementById("packageModal").classList.remove("show");
   document.getElementById("addonShopModal").classList.remove("show");
-  log("塘口村，清晨。你整理背包，沿火烧坡方向进山。目标：鳌山进、太白出，尽量少花钱走到鹦鸽。", "sys");
-  log("左侧为卫星示意地图：绿点是你，红线为已走路径。滑条/滚轮调节远近。任意地点可过夜；下撤可后补车费。", "sys");
+  log("塘口村，清晨。你整理背包，准备进山。目标：鳌山进、太白出，尽量少花钱走到鹦鸽。", "sys");
+  log("卫星示意地图已加载。高反、信号中断、失温会影响行程；沟口设有检查站劝返。", "sys");
   refreshMeta(); drawMap(); renderActions();
-  if (typeof AotaiMap3D !== "undefined") setTimeout(() => AotaiMap3D.resize(), 80);
   startBgmAutoplay();
+  beginInterceptCheckpoint();
 }
 
 const BGM_TITLE = "Ridge Tension（原创）";
@@ -985,12 +1522,24 @@ async function startBgmAutoplay() {
 
 function initState() {
   S = {
-    idx: 0, money: 600, stam: 100, food: 4, water: 3,
+    idx: 0, money: 600, startMoney: 600, stam: 100, food: 4, water: 3,
     day: 1, hour: 7, weather: WEATHERS.clear,
     foodNeed: 0, waterNeed: 0, camps: 0, spentAny: false,
     discoveredRetreats: new Set(), unlockedThisRun: new Set(),
     ended: false, bgmOn: true,
     gear: {}, baseWeight: 2.2,
+    altExposure: 0, altLevel: 0,
+    signalOut: false, signalUntil: 0,
+    phoneBattery: 100,
+    hypo: 0,
+    failCause: null,
+    foundTrail: new Set(),
+    checkpointPassed: false,
+    shopSpentAtStart: 0,
+    holidayCheck: [0, 6].includes(new Date().getDay()) || Math.random() < 0.1,
+    interceptQuiz: null,
+    interceptCorrect: 0,
+    interceptIdx: 0,
     selectedPackageId: null, prepPhase: true,
     disclaimerAcknowledged: false,
   };
