@@ -58,6 +58,12 @@
   header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .02em; }
   header .meta { color: var(--muted); font-size: 13px; display: flex; gap: 14px; flex-wrap: wrap; }
   header .meta b { color: var(--accent); font-weight: 600; }
+  header .meta .need-tag {
+    font-size: 11px; font-weight: 600; margin-left: 2px;
+    color: var(--muted);
+  }
+  header .meta .need-tag.need-warn { color: var(--accent); }
+  header .meta .need-tag.need-bad { color: var(--bad); }
   .layout {
     display: grid;
     grid-template-columns: 1.1fr 1fr;
@@ -309,8 +315,8 @@
   <div class="meta">
     <span>现金 <b id="mMoney">—</b></span>
     <span>体力 <b id="mStam">—</b></span>
-    <span>干粮 <b id="mFood">—</b></span>
-    <span>水 <b id="mWater">—</b></span>
+    <span>干粮 <b id="mFood">—</b><span class="need-tag" id="mFoodNeed">饱腹</span></span>
+    <span>水 <b id="mWater">—</b><span class="need-tag" id="mWaterNeed">润泽</span></span>
     <span>负重 <b id="mWeight">—</b></span>
     <span>天气 <b id="mWeather">—</b></span>
     <span>高反 <b id="mAlt">—</b></span>
@@ -470,6 +476,8 @@ const FAIL_CAUSES = {
   altitude: "高原反应",
   hypothermia: "失温",
   fall: "坠崖",
+  starvation: "饥饿衰竭",
+  dehydration: "脱水休克",
 };
 
 const CASUALTY_HISTORICAL_HTML = `
@@ -524,7 +532,7 @@ function recordDeath(cause) {
 function formatLocalDeathStats() {
   const d = loadDeathStats();
   const total = d.total || 0;
-  return `本机失败次数：<b>${total}</b>（体力 ${d.stamina || 0} · 高反 ${d.altitude || 0} · 失温 ${d.hypothermia || 0} · 坠崖 ${d.fall || 0}）`;
+  return `本机失败次数：<b>${total}</b>（体力 ${d.stamina || 0} · 高反 ${d.altitude || 0} · 失温 ${d.hypothermia || 0} · 坠崖 ${d.fall || 0} · 饥饿 ${d.starvation || 0} · 脱水 ${d.dehydration || 0}）`;
 }
 
 function showCasualties() {
@@ -1288,12 +1296,104 @@ function campModeLabel(mode) {
   return "就地过夜";
 }
 
+const FOOD_NEED_LABELS = ["饱腹", "略饿", "饥饿", "虚脱"];
+const WATER_NEED_LABELS = ["润泽", "口渴", "严重缺水"];
+const FOOD_NEED_TIER_LOG = [
+  "",
+  "肚子开始叫唤，该吃点干粮了。",
+  "饥饿感上来，腿脚发软，务必补充能量。",
+  "虚脱边缘，再不进食恐怕撑不住下一段。",
+];
+const WATER_NEED_TIER_LOG = [
+  "",
+  "嗓子发干，记得喝水。",
+  "严重缺水，每一步都在透支身体。",
+];
+
+function foodNeedTier(need) {
+  const n = need != null ? need : (S.foodNeed || 0);
+  if (n < 0.22) return 0;
+  if (n < 0.48) return 1;
+  if (n < 0.78) return 2;
+  return 3;
+}
+
+function waterNeedTier(need) {
+  const n = need != null ? need : (S.waterNeed || 0);
+  if (n < 0.25) return 0;
+  if (n < 0.58) return 1;
+  return 2;
+}
+
+function foodNeedLabel() { return FOOD_NEED_LABELS[foodNeedTier()]; }
+function waterNeedLabel() { return WATER_NEED_LABELS[waterNeedTier()]; }
+
+function needTagClass(kind, tier) {
+  const max = kind === "food" ? 3 : 2;
+  if (tier >= max) return "need-tag need-bad";
+  if (tier >= 1) return "need-tag need-warn";
+  return "need-tag";
+}
+
+/** 饥饿/口渴恶化时记一次日志，避免每 tick 刷屏 */
+function syncNeedTierLogs() {
+  const ft = foodNeedTier();
+  const wt = waterNeedTier();
+  if (ft > (S._foodNeedTier || 0) && FOOD_NEED_TIER_LOG[ft]) {
+    log(FOOD_NEED_TIER_LOG[ft], "bad");
+  }
+  if (wt > (S._waterNeedTier || 0) && WATER_NEED_TIER_LOG[wt]) {
+    log(WATER_NEED_TIER_LOG[wt], "bad");
+  }
+  S._foodNeedTier = ft;
+  S._waterNeedTier = wt;
+}
+
+function hungerMoveStamExtra() {
+  const t = foodNeedTier();
+  const base = [0, 2, 5, 11][t];
+  return base + Math.floor((S.foodNeed || 0) * 4);
+}
+
+function thirstMoveStamExtra() {
+  const t = waterNeedTier();
+  const base = [0, 3, 8][t];
+  return base + Math.floor((S.waterNeed || 0) * 5);
+}
+
+function needsMoveHoursMult() {
+  let m = 1;
+  const fn = S.foodNeed || 0;
+  const wn = S.waterNeed || 0;
+  if (foodNeedTier() >= 2) m += 0.04 + Math.max(0, fn - 0.48) * 0.1;
+  if (waterNeedTier() >= 2) m += 0.05 + Math.max(0, wn - 0.58) * 0.12;
+  return Math.min(1.28, m);
+}
+
+function campNeedsPenalty() {
+  const ft = foodNeedTier();
+  const wt = waterNeedTier();
+  return [0, 4, 10, 18][ft] + [0, 5, 14][wt];
+}
+
+/** 按当前饥渴度持续扣体力（不自动吃库存） */
+function applyNeedsPassiveDrain(hours, resting) {
+  const fn = S.foodNeed || 0;
+  const wn = S.waterNeed || 0;
+  if (fn < 0.12 && wn < 0.12) return;
+  const scale = resting ? 0.4 : 1;
+  const drain = scale * hours * (fn * 5.5 + wn * 6.5 + foodNeedTier() * 1.2 + waterNeedTier() * 1.8);
+  const loss = Math.round(drain);
+  if (loss > 0) S.stam = Math.max(0, S.stam - loss);
+}
+
 function eatRations() {
   if (S.ended || S.prepPhase) return;
   if (S.food <= 0) return log("干粮袋空了，得找补给或取水点买。", "bad");
   S.food--;
   S.foodNeed = Math.max(0, S.foodNeed - 1);
   S.stam = Math.min(100, S.stam + 14);
+  S._foodNeedTier = foodNeedTier();
   log("你停下啃了一份干粮，胃里踏实了些。", "good");
   refreshMeta();
   renderActions();
@@ -1305,6 +1405,7 @@ function drinkPackWater() {
   S.water--;
   S.waterNeed = Math.max(0, S.waterNeed - 1);
   S.stam = Math.min(100, S.stam + 10);
+  S._waterNeedTier = waterNeedTier();
   log("喝了一口水，喉咙舒服些。", "good");
   refreshMeta();
   renderActions();
@@ -1320,6 +1421,16 @@ function refreshMeta() {
   document.getElementById("mStam").textContent = S.stam + "/100";
   document.getElementById("mFood").textContent = S.food;
   document.getElementById("mWater").textContent = S.water;
+  const mFoodNeed = document.getElementById("mFoodNeed");
+  const mWaterNeed = document.getElementById("mWaterNeed");
+  if (mFoodNeed) {
+    mFoodNeed.textContent = foodNeedLabel();
+    mFoodNeed.className = needTagClass("food", foodNeedTier());
+  }
+  if (mWaterNeed) {
+    mWaterNeed.textContent = waterNeedLabel();
+    mWaterNeed.className = needTagClass("water", waterNeedTier());
+  }
   document.getElementById("mWeight").textContent = totalWeightKg() + "kg";
   document.getElementById("mWeather").textContent = S.weather.name;
   const altEl = document.getElementById("mAlt");
@@ -1393,15 +1504,23 @@ function tickNeeds(hours, opts = {}) {
   const resting = !!opts.resting;
   S.foodNeed += hours / (resting ? 6 : 4);
   S.waterNeed += hours / (resting ? 5 : 3);
+  syncNeedTierLogs();
+  applyNeedsPassiveDrain(hours, resting);
   while (S.foodNeed >= 1) {
     S.foodNeed -= 1;
-    if (!resting) { S.stam -= 15; log("腹中饥饿，脚步发虚——记得吃干粮。", "bad"); }
-    else { S.stam -= 8; log("饿着过夜，睡不踏实。", "bad"); }
+    const spike = resting ? 10 : 18;
+    S.stam = Math.max(0, S.stam - spike);
+    if (!resting) log("腹中空荡，没及时吃干粮，体力猛掉一截。", "bad");
+    else log("饿着过夜，胃里翻腾，恢复大打折扣。", "bad");
+    syncNeedTierLogs();
   }
   while (S.waterNeed >= 1) {
     S.waterNeed -= 1;
-    if (!resting) { S.stam -= 20; log("口干舌燥，严重缺水——记得喝水。", "bad"); }
-    else { S.stam -= 10; log("夜里缺水，唇舌发干。", "bad"); }
+    const spike = resting ? 12 : 22;
+    S.stam = Math.max(0, S.stam - spike);
+    if (!resting) log("渴到发晕，没喝水，身体在抗议。", "bad");
+    else log("夜里缺水，唇舌干裂，睡不安稳。", "bad");
+    syncNeedTierLogs();
   }
   S.hour += hours;
   while (S.hour >= 24) { S.hour -= 24; S.day++; }
@@ -1418,17 +1537,23 @@ function checkFail() {
     let cause = S.failCause || "stamina";
     if (S.hypo >= 3) cause = "hypothermia";
     else if (S.altLevel >= 3 && S.altExposure > 90) cause = "altitude";
+    else if (foodNeedTier() >= 3 && S.food <= 0) cause = "starvation";
+    else if (waterNeedTier() >= 2 && S.water <= 0 && (S.waterNeed || 0) >= 0.7) cause = "dehydration";
     const titles = {
       stamina: "体力耗尽",
       altitude: "高原反应失控",
       hypothermia: "失温",
       fall: "坠崖",
+      starvation: "饥饿衰竭",
+      dehydration: "脱水休克",
     };
     const bodies = {
       stamina: "你倒在梁上。这一次没有走到终点——但活着下撤也是胜利，下次早作决定。",
       altitude: "高反恶化，你在梁顶失去行动能力。无信号区救援代价极高。",
       hypothermia: "失温让你再也暖不起来。公开报道里，这是鳌太最常见的致命原因之一。",
       fall: "滑落崖缘，这一局以悲剧收场。",
+      starvation: "粮袋见底又硬撑太久，你在石海边缘再也站不起来。鳌太线上，低估补给代价的人并不少见。",
+      dehydration: "水壶干了仍不肯补水，意识模糊间你倒在梁上。公开案例里，脱水与高反一样凶险。",
     };
     failGame(cause, titles[cause] || titles.stamina, bodies[cause] || bodies.stamina);
     return true;
@@ -1444,9 +1569,24 @@ function goNext() {
   S.weather = weatherPick(risk);
   const mit = mitigationFor(S.weather.id);
   let hours = to.hours_base * S.weather.mult * (1 - mit.multR) * altitudeMoveMult();
+  hours *= needsMoveHoursMult();
   if (S.hypo >= 2) hours *= 1.08;
   if (S.signalOut && isStoneSeaPoint(to) && !gpsEffective()) hours *= 1.12;
-  const stamCost = Math.round(8 + to.weather_risk * 2 + S.weather.stam + (S.food < 2 ? 3 : 0) + weightStamPenalty() + altitudeStamExtra() + (S.hypo || 0) * 2 - mit.stamR);
+  if (foodNeedTier() >= 3 && S.food <= 0) {
+    const crash = 6 + Math.floor(Math.random() * 8);
+    S.stam = Math.max(0, S.stam - crash);
+    log("虚脱无力，每一步都像拖着铅腿。", "bad");
+  }
+  if (waterNeedTier() >= 2 && S.water <= 0 && (S.waterNeed || 0) >= 0.75) {
+    const crash = 5 + Math.floor(Math.random() * 7);
+    S.stam = Math.max(0, S.stam - crash);
+    log("严重缺水，头晕目眩，行进格外艰难。", "bad");
+  }
+  const stamCost = Math.round(
+    8 + to.weather_risk * 2 + S.weather.stam
+    + hungerMoveStamExtra() + thirstMoveStamExtra()
+    + (S.food < 1 ? 2 : 0) + weightStamPenalty() + altitudeStamExtra() + (S.hypo || 0) * 2 - mit.stamR
+  );
   S.stam = Math.max(0, S.stam - Math.max(3, stamCost));
   tickNeeds(hours);
   drainPhoneBattery(true);
@@ -1487,13 +1627,13 @@ function camp() {
   const mode = campMode(p);
   let bonus = mode === "camp" ? 35 : (mode === "bivy" ? 28 : 20);
   bonus -= applyAltitudeCamp(p);
-  if (S.foodNeed >= 0.35) {
-    bonus -= 12;
-    log("睡前没吃够干粮，夜里胃里发空，恢复不如预期。", "bad");
-  }
-  if (S.waterNeed >= 0.35) {
-    bonus -= 10;
-    log("水壶没灌满就扎营，半夜渴得醒。", "bad");
+  const needPen = campNeedsPenalty();
+  if (needPen > 0) {
+    bonus -= needPen;
+    if (foodNeedTier() >= 2) log("睡前没吃够干粮，夜里胃里发空，恢复不如预期。", "bad");
+    else if (foodNeedTier() >= 1) log("略饿入睡，恢复稍打折扣。", "bad");
+    if (waterNeedTier() >= 2) log("严重缺水扎营，半夜渴得醒，几乎没睡踏实。", "bad");
+    else if (waterNeedTier() >= 1) log("水壶没灌满就扎营，夜里口干。", "bad");
   }
   if (S.hypo >= 1) {
     bonus -= S.hypo * 5;
@@ -1871,7 +2011,7 @@ function initState() {
   S = {
     idx: 0, money: 600, startMoney: 600, stam: 100, food: 4, water: 3,
     day: 1, hour: 7, weather: WEATHERS.clear,
-    foodNeed: 0, waterNeed: 0, camps: 0, spentAny: false,
+    foodNeed: 0, waterNeed: 0, _foodNeedTier: 0, _waterNeedTier: 0, camps: 0, spentAny: false,
     discoveredRetreats: new Set(), unlockedThisRun: new Set(),
     ended: false, bgmOn: true,
     gear: {}, baseWeight: 2.2,
