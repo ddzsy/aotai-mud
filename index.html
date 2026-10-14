@@ -85,12 +85,6 @@
     background: rgba(0,0,0,.5); padding: 6px 10px; border-radius: 6px; z-index: 2; max-width: 55%;
     line-height: 1.35;
   }
-  .map-minimap {
-    position: absolute; right: 10px; top: 10px; z-index: 3;
-    width: 168px; height: 118px; border-radius: 8px;
-    border: 1px solid var(--line); background: rgba(8,12,18,.82);
-    pointer-events: none;
-  }
   .map-zoom {
     position: absolute; right: 10px; bottom: 52px; z-index: 3;
     display: flex; flex-direction: column; align-items: center; gap: 4px;
@@ -170,6 +164,40 @@
   .stat-grid b { color: var(--text); }
   header .meta .sig-off b { color: var(--bad); }
   header .meta .sig-on b { color: var(--good); }
+  .pkg-grid { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
+  button.pkg-card {
+    width: 100%; font: inherit; color: inherit;
+    border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+    cursor: pointer; transition: border-color .15s, background .15s; text-align: left;
+    background: #151c24;
+  }
+  .pkg-card:hover { border-color: #445566; }
+  .pkg-card.selected { border-color: var(--accent); background: #1e2430; box-shadow: 0 0 0 1px rgba(232,165,75,.25); }
+  .pkg-card .pkg-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+  .pkg-card .pkg-name { font-size: 16px; font-weight: 700; color: var(--text); }
+  .pkg-card .pkg-cost { font-size: 14px; color: var(--accent); font-weight: 600; white-space: nowrap; }
+  .pkg-card .pkg-tag { font-size: 12px; color: var(--muted); margin: 0 0 6px; }
+  .pkg-card .pkg-includes { font-size: 12px; color: var(--muted); line-height: 1.45; margin: 0; }
+  .pkg-card .pkg-after { font-size: 12px; color: var(--good); margin-top: 8px; }
+  .prep-summary { font-size: 13px; color: var(--muted); margin: 0 0 8px; line-height: 1.45; }
+  .prep-summary b { color: var(--text); }
+  .modal-bg.disclaimer-layer { z-index: 30; background: rgba(0,0,0,.72); }
+  .disclaimer-modal {
+    border-color: #8a3038;
+    box-shadow: 0 0 0 1px rgba(224,108,117,.35), 0 12px 40px rgba(0,0,0,.45);
+    width: min(520px, 94vw);
+  }
+  .disclaimer-modal h2 { color: #f0a0a8; font-size: 17px; letter-spacing: .02em; }
+  .disclaimer-body {
+    font-size: 14px; line-height: 1.65; color: var(--text);
+    margin: 0 0 16px; padding: 12px 14px;
+    background: rgba(42,26,28,.55); border: 1px solid #5a3036; border-radius: 8px;
+  }
+  .disclaimer-body p { margin: 0 0 10px; }
+  .disclaimer-body p:last-child { margin-bottom: 0; }
+  .disclaimer-body .lead { color: #f5c6cb; font-weight: 600; }
+  .disclaimer-actions { display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
+  .disclaimer-actions .hint { font-size: 12px; color: var(--muted); text-align: center; margin: 0; }
 </style>
 </head>
 <body>
@@ -194,10 +222,9 @@
     <div class="map-weather-overlay" id="mapWeatherOverlay" aria-hidden="true"></div>
     <div class="map-title" aria-hidden="true">
       <div class="line1">秦岭 · 鳌太线</div>
-      <div class="line2">禁止非法穿越</div>
+      <div class="line2">保护区明令禁止 · 切勿实地穿越</div>
     </div>
-    <div class="map-loc" id="mapLoc">加载卫星地形…</div>
-    <canvas id="map2d" class="map-minimap" width="168" height="118" aria-label="2D示意线路"></canvas>
+    <div class="map-loc" id="mapLoc">出发前不加载地图 · 买完点「出发」</div>
     <div class="map-zoom" title="滚轮可缩放">
       <span>近景</span>
       <button type="button" onclick="mapZoomStep(0.12)">＋</button>
@@ -205,7 +232,7 @@
       <button type="button" onclick="mapZoomStep(-0.12)">－</button>
       <span>全貌</span>
     </div>
-    <div class="map-legend">Esri 卫星 + Terrarium 地形 · 红=已走 · 白=前方 · 绿标=你<br/>右上=2D 示意 · 滑条/滚轮调节跟拍远近</div>
+    <div class="map-legend">Esri 卫星示意 · 红=已走 · 白=前方 · 绿点=你 · 滑条/滚轮调远近</div>
   </div>
   <div class="game-pane">
     <div id="log"></div>
@@ -213,29 +240,43 @@
   </div>
 </div>
 <div class="ach-toast" id="toast"></div>
-<div class="modal-bg show" id="shopModal">
+<div class="modal-bg disclaimer-layer show" id="disclaimerModal" role="dialog" aria-modal="true" aria-labelledby="disclaimerTitle">
+  <div class="modal disclaimer-modal">
+    <h2 id="disclaimerTitle">重要安全提示</h2>
+    <div class="disclaimer-body">
+      <p class="lead">鳌太线穿越目前属于违规行为，太白山国家级自然保护区已明令禁止，违者将面临处罚。</p>
+      <p>沿途气候多变，石海路段极易迷路；仅依赖手机轨迹也存在电量耗尽或信号中断的风险。</p>
+      <p>请务必遵守规定，不要尝试进入。本页面仅为虚构游戏，不代表鼓励或指导实地穿越。</p>
+    </div>
+    <div class="disclaimer-actions">
+      <button type="button" class="primary" id="btnDisclaimerAck" onclick="acknowledgeDisclaimer()">我已知晓，仅作游戏</button>
+      <p class="hint">确认后方可选择出发套餐</p>
+    </div>
+  </div>
+</div>
+<div class="modal-bg" id="packageModal">
+  <div class="modal" style="width:min(520px,94vw)">
+    <h2>塘口村 · 出发前准备</h2>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 8px">你带着 ¥600 与基础粮水。先选一套出发方案；不满意可再进商店单买补给。鳌太天气翻脸极快——装备能保命，现金能撑到下撤。</p>
+    <p class="prep-summary" id="prepSummary">当前：<b>未选套餐</b> · 现金 <b id="prepMoney">¥600</b> · 负重 <b id="prepWeight">2.2</b> kg · 干粮 <b id="prepFood">4</b> · 水 <b id="prepWater">3</b></p>
+    <div class="pkg-grid" id="packageGrid"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      <button class="primary" id="btnDepart" onclick="finishShop()" disabled>出发上山</button>
+      <button type="button" onclick="openAddonShop()">额外补给</button>
+      <button type="button" onclick="showCasualties()">伤亡与警示</button>
+      <button onclick="showAchievements()">成就</button>
+    </div>
+  </div>
+</div>
+<div class="modal-bg" id="addonShopModal">
   <div class="modal">
-    <h2>塘口村 · 出发前采购</h2>
-    <p style="font-size:13px;color:var(--muted);margin:0 0 8px">你带着 ¥600 和基础补给。尽量省钱，但鳌太天气翻脸极快——适当装备能保命。买完点「出发」。</p>
-    <div class="warn-box">
-      <b>警示</b>：本游戏为虚构体验，<b>请勿在现实中非法穿越鳌太线</b>。山区无信号、高反与失温可致命；遇险请拨打 110/119 并尽早下撤。
-    </div>
+    <h2>塘口补给店</h2>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 8px">单买装备与粮水，叠加在你已选的套餐之上。买够就关店，回到出发界面。</p>
     <p style="font-size:13px;margin:0 0 4px">剩余现金：<b id="shopMoney">600</b> · 负重：<b id="shopWeight">0</b> kg</p>
-    <label style="font-size:13px;display:flex;gap:8px;align-items:flex-start;margin:8px 0 10px">
-      <input type="checkbox" id="disclaimerOk" style="margin-top:3px" />
-      <span>我已阅读警示：知悉鳌太高风险，现实里遵守法规、不盲目进山。</span>
-    </label>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 6px">快捷配装（可再微调单品）：</p>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
-      <button type="button" onclick="applyShopPreset('minimal')">极简（省钱）</button>
-      <button type="button" onclick="applyShopPreset('standard')">标准</button>
-      <button type="button" onclick="applyShopPreset('safe')">稳妥</button>
-    </div>
     <div class="shop-grid" id="shopGrid"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-      <button class="primary" id="btnDepart" disabled onclick="finishShop()">出发上山</button>
-      <button onclick="showCasualties()">伤亡与警示</button>
-      <button onclick="showAchievements()">成就</button>
+      <button class="primary" onclick="closeAddonShop()">返回出发准备</button>
+      <button type="button" onclick="showCasualties()">伤亡与警示</button>
     </div>
   </div>
 </div>
@@ -280,12 +321,10 @@
     <div style="margin-top:14px"><button onclick="document.getElementById('casualtyModal').classList.remove('show')">关闭</button></div>
   </div>
 </div>
-<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
-<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="map3d.js"></script>
 <script>
 let DATA = { points: [], retreats: {} };
-let GAME = { shop: [], gear: {}, emergencies: [] };
+let GAME = { shop: [], gear: {}, emergencies: [], starterPackages: [] };
 
 const WEATHERS = {
   clear: { id: "clear", name: "晴", mult: 1, stam: 0 },
@@ -576,10 +615,10 @@ function rollTrailFind(p) {
 }
 
 function isMinimalLoadout() {
-  if (S.loadoutPreset === "minimal") return true;
-  const spent = (S.startMoney || 600) - S.money;
+  if (S.selectedPackageId === "minimal") return true;
+  const spent = (S.startMoney || PREP_INIT.money) - S.money;
   const gearN = Object.keys(S.gear).length;
-  return spent < 130 && gearN <= 1 && totalWeightKg() < 7.5;
+  return spent < 130 && gearN <= 3 && totalWeightKg() < 8.5;
 }
 
 function interceptStrictnessBonus() {
@@ -735,6 +774,7 @@ async function loadInlineFallback() {
   }
   GAME = {
     shop: [],
+    starterPackages: [],
     gear: {},
     emergencies: [
       { id: "blizzard", name: "暴雪", weather: "blizzard", minRisk: 3, weight: 1, stam: 14, mult: 0.35, log: "狂风卷雪，能见度骤降。" },
@@ -976,65 +1016,25 @@ function mapZoomStep(delta) {
   if (typeof AotaiMap3D !== "undefined") AotaiMap3D.adjustZoom(delta);
 }
 
-function drawSchematicMinimap() {
-  const canvas = document.getElementById("map2d");
-  const pts = DATA.points;
-  if (!canvas || !pts.length) return;
-  const ctx = canvas.getContext("2d");
-  const w = canvas.width;
-  const h = canvas.height;
-  ctx.clearRect(0, 0, w, h);
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  pts.forEach((p) => {
-    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
-    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
-  });
-  const pad = 12;
-  const sx = (w - pad * 2) / (maxX - minX);
-  const sy = (h - pad * 2) / (maxY - minY);
-  const sc = Math.min(sx, sy);
-  const ox = (w - (maxX - minX) * sc) / 2;
-  const oy = (h - (maxY - minY) * sc) / 2;
-  const tx = (x) => ox + (x - minX) * sc;
-  const ty = (y) => oy + (y - minY) * sc;
-  ctx.strokeStyle = "#4a5a68";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  pts.forEach((p, i) => {
-    const x = tx(p.x), y = ty(p.y);
-    if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
-  });
-  ctx.stroke();
-  ctx.strokeStyle = "#5dbe8a";
-  ctx.beginPath();
-  pts.forEach((p, i) => {
-    if (i > S.idx) return;
-    const x = tx(p.x), y = ty(p.y);
-    if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
-  });
-  ctx.stroke();
-  const cur = pts[S.idx];
-  ctx.fillStyle = "#e8a54b";
-  ctx.beginPath();
-  ctx.arc(tx(cur.x), ty(cur.y), 4, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#8b9aab";
-  ctx.font = "9px sans-serif";
-  ctx.fillText("2D示意", 6, 12);
+function progressKm(idx) {
+  let t = 0;
+  for (let i = 1; i <= idx && i < DATA.points.length; i++) {
+    t += DATA.points[i].km_from_prev || 0;
+  }
+  return t;
 }
 
 function drawMap() {
   const pts = DATA.points;
   if (!pts.length || typeof AotaiMap3D === "undefined") return;
-  if (!AotaiMap3D.isReady()) AotaiMap3D.init(pts);
   const p = pts[S.idx];
   const w = S.weather ? S.weather.id : "clear";
-  AotaiMap3D.update(S.idx, w);
-  drawSchematicMinimap();
+  AotaiMap3D.update(S.idx, w, pts);
   const loc = document.getElementById("mapLoc");
   if (loc && p) {
     const sig = S.signalOut ? "信号中断" : ("信号" + signalStatusText());
-    loc.innerHTML = `<b>${p.name}</b> · ${p.alt_m}m · ${sig}<br/><span style="color:var(--muted);font-size:11px">卫星跟拍 · 绿标为当前位置 · 右上 2D 示意</span>`;
+    const km = progressKm(S.idx).toFixed(1);
+    loc.innerHTML = `<b>${p.name}</b> · ${p.alt_m}m · 约 ${km} km · ${sig}<br/><span style="color:var(--muted);font-size:11px">卫星示意 · 绿点为当前位置</span>`;
   }
 }
 
@@ -1294,6 +1294,123 @@ function showGear() {
   log(names.length ? "携带装备：" + names.join("、") : "除基础衣物外无额外装备。", "sys");
 }
 
+const PREP_INIT = { money: 600, food: 4, water: 3, baseWeight: 2.2 };
+
+function shopItemById(id) {
+  return (GAME.shop || []).find(it => it.id === id);
+}
+
+function packageSpend(pkg) {
+  let sum = 0;
+  (pkg.shopIds || []).forEach(sid => {
+    const it = shopItemById(sid);
+    if (it) sum += it.cost;
+  });
+  return sum;
+}
+
+function resetPrepInventory() {
+  S.money = PREP_INIT.money;
+  S.food = PREP_INIT.food;
+  S.water = PREP_INIT.water;
+  S.baseWeight = PREP_INIT.baseWeight;
+  S.gear = {};
+}
+
+function applyShopItemSilent(item) {
+  if (!item || S.money < item.cost) return false;
+  if (item.type === "gear" && hasGear(item.gear)) return false;
+  S.money -= item.cost;
+  if (item.type === "food") S.food += item.amount;
+  else if (item.type === "water") S.water += item.amount;
+  else if (item.type === "gear") {
+    const def = GAME.gear[item.gear] || {};
+    const entry = { weight: item.weight || 0 };
+    if (def.fuelUses) entry.uses = def.fuelUses;
+    else if (def.consumable) entry.uses = def.uses || 3;
+    S.gear[item.gear] = entry;
+  }
+  return true;
+}
+
+function applyStarterPackage(pkg) {
+  if (!pkg) return;
+  resetPrepInventory();
+  (pkg.shopIds || []).forEach(sid => {
+    const it = shopItemById(sid);
+    if (it) applyShopItemSilent(it);
+  });
+  S.selectedPackageId = pkg.id;
+  refreshPrepUI();
+}
+
+function acknowledgeDisclaimer() {
+  if (!S) return;
+  S.disclaimerAcknowledged = true;
+  document.getElementById("disclaimerModal").classList.remove("show");
+  document.getElementById("packageModal").classList.add("show");
+}
+
+function requireDisclaimer() {
+  if (S && S.disclaimerAcknowledged) return true;
+  document.getElementById("disclaimerModal").classList.add("show");
+  return false;
+}
+
+function refreshPrepUI() {
+  const pkg = (GAME.starterPackages || []).find(p => p.id === S.selectedPackageId);
+  const nameEl = document.getElementById("prepSummary");
+  if (nameEl) {
+    const label = pkg ? `已选「${pkg.name}」` : "未选套餐";
+    nameEl.innerHTML = `当前：<b>${label}</b> · 现金 <b id="prepMoney">${formatMoney(S.money)}</b> · 负重 <b id="prepWeight">${totalWeightKg()}</b> kg · 干粮 <b id="prepFood">${S.food}</b> · 水 <b id="prepWater">${S.water}</b>`;
+  } else {
+    const m = document.getElementById("prepMoney");
+    if (m) m.textContent = formatMoney(S.money);
+    const w = document.getElementById("prepWeight");
+    if (w) w.textContent = totalWeightKg();
+    const f = document.getElementById("prepFood");
+    if (f) f.textContent = S.food;
+    const wa = document.getElementById("prepWater");
+    if (wa) wa.textContent = S.water;
+  }
+  const depart = document.getElementById("btnDepart");
+  if (depart) depart.disabled = !S.selectedPackageId;
+  renderPackageCards();
+}
+
+function renderPackageCards() {
+  const grid = document.getElementById("packageGrid");
+  if (!grid) return;
+  grid.innerHTML = "";
+  (GAME.starterPackages || []).forEach(pkg => {
+    const spend = packageSpend(pkg);
+    const after = PREP_INIT.money - spend;
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "pkg-card" + (S.selectedPackageId === pkg.id ? " selected" : "");
+    card.innerHTML = `
+      <div class="pkg-head"><span class="pkg-name">${pkg.name}</span><span class="pkg-cost">套餐 ¥${spend}</span></div>
+      <p class="pkg-tag">${pkg.tagline || ""}</p>
+      <p class="pkg-includes">${pkg.includes || ""}</p>
+      <p class="pkg-after">选后约剩 ${formatMoney(after)} · 负重约 ${estimatePackageWeight(pkg)} kg</p>`;
+    card.onclick = () => {
+      if (!requireDisclaimer()) return;
+      startBgmAutoplay();
+      applyStarterPackage(pkg);
+    };
+    grid.appendChild(card);
+  });
+}
+
+function estimatePackageWeight(pkg) {
+  let w = PREP_INIT.baseWeight;
+  (pkg.shopIds || []).forEach(sid => {
+    const it = shopItemById(sid);
+    if (it && it.weight) w += it.weight;
+  });
+  return Math.round(w * 10) / 10;
+}
+
 function renderShop() {
   document.getElementById("shopMoney").textContent = formatMoney(S.money);
   document.getElementById("shopWeight").textContent = totalWeightKg();
@@ -1314,6 +1431,22 @@ function renderShop() {
   });
 }
 
+function openAddonShop() {
+  if (!requireDisclaimer()) return;
+  if (!S.selectedPackageId) {
+    log("请先选一套出发套餐，再进商店加购。", "sys");
+    return;
+  }
+  startBgmAutoplay();
+  renderShop();
+  document.getElementById("addonShopModal").classList.add("show");
+}
+
+function closeAddonShop() {
+  document.getElementById("addonShopModal").classList.remove("show");
+  refreshPrepUI();
+}
+
 function shopDesc(item) {
   if (item.type === "food") return "增加干粮";
   if (item.type === "water") return "增加饮水";
@@ -1330,29 +1463,20 @@ function shopDesc(item) {
 
 function buyShopItem(item) {
   startBgmAutoplay();
-  if (S.money < item.cost) return;
-  if (item.type === "gear" && hasGear(item.gear)) return;
-  S.money -= item.cost;
-  if (item.type === "food") S.food += item.amount;
-  else if (item.type === "water") S.water += item.amount;
-  else if (item.type === "gear") {
-    const def = GAME.gear[item.gear] || {};
-    const entry = { weight: item.weight || 0 };
-    if (def.fuelUses) entry.uses = def.fuelUses;
-    else if (def.consumable) entry.uses = def.uses || 3;
-    S.gear[item.gear] = entry;
-  }
+  if (!applyShopItemSilent(item)) return;
   renderShop();
+  if (S.prepPhase) refreshPrepUI();
 }
 
 function finishShop() {
-  if (!document.getElementById("disclaimerOk").checked) {
-    return log("请先勾选警示确认。", "bad");
-  }
-  S.shopSpentAtStart = (S.startMoney || 600) - S.money;
-  document.getElementById("shopModal").classList.remove("show");
+  if (!requireDisclaimer()) return;
+  if (!S.selectedPackageId) return;
+  S.shopSpentAtStart = (S.startMoney || PREP_INIT.money) - S.money;
+  S.prepPhase = false;
+  document.getElementById("packageModal").classList.remove("show");
+  document.getElementById("addonShopModal").classList.remove("show");
   log("塘口村，清晨。你整理背包，准备进山。目标：鳌山进、太白出，尽量少花钱走到鹦鸽。", "sys");
-  log("左侧为卫星 3D 跟拍：绿标是你，红线为已走路径。高反、信号、失温会影响行程；沟口可能有检查站。", "sys");
+  log("卫星示意地图已加载。高反、信号中断、失温会影响行程；沟口设有检查站劝返。", "sys");
   refreshMeta(); drawMap(); renderActions();
   startBgmAutoplay();
   beginInterceptCheckpoint();
@@ -1412,23 +1536,19 @@ function initState() {
     foundTrail: new Set(),
     checkpointPassed: false,
     shopSpentAtStart: 0,
-    loadoutPreset: "",
     holidayCheck: [0, 6].includes(new Date().getDay()) || Math.random() < 0.1,
     interceptQuiz: null,
     interceptCorrect: 0,
     interceptIdx: 0,
+    selectedPackageId: null, prepPhase: true,
+    disclaimerAcknowledged: false,
   };
 }
 
 async function boot() {
   await loadGameFiles();
   initState();
-  renderShop();
-  const disc = document.getElementById("disclaimerOk");
-  const depart = document.getElementById("btnDepart");
-  if (disc && depart) {
-    disc.addEventListener("change", () => { depart.disabled = !disc.checked; });
-  }
+  refreshPrepUI();
   window.addEventListener("resize", () => { if (typeof AotaiMap3D !== "undefined") AotaiMap3D.resize(); });
 }
 
