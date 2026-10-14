@@ -79,6 +79,28 @@
     background: linear-gradient(180deg, rgba(200,220,240,.0), rgba(180,200,220,.15));
     opacity: 0; transition: opacity 0.4s;
   }
+  .map-weather-fx {
+    position: absolute; inset: 0; pointer-events: none; z-index: 1;
+    mix-blend-mode: screen;
+  }
+  .map-pane.weather-shake {
+    animation: mapWindShake 0.45s ease-in-out infinite;
+  }
+  .map-pane.weather-storm-flash::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 4;
+    background: rgba(220,230,255,.22);
+    animation: stormFlash 0.12s ease-out;
+  }
+  @keyframes mapWindShake {
+    0%, 100% { transform: translate(0, 0); }
+    25% { transform: translate(-1px, 0.5px); }
+    75% { transform: translate(1px, -0.5px); }
+  }
+  @keyframes stormFlash {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+  .map-weather-overlay.weather-whiteout { filter: blur(0.4px); }
   .maplibregl-ctrl-attrib { font-size: 9px !important; max-width: 55%; }
   .map-loc {
     position: absolute; left: 10px; top: 10px; font-size: 12px; color: var(--text);
@@ -310,6 +332,13 @@
     <p id="interceptProgress" style="font-size:12px;color:var(--accent);margin:0 0 8px"></p>
     <p id="interceptQuestion" style="font-size:14px;line-height:1.5;margin:0 0 12px"></p>
     <div id="interceptOptions" style="display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+</div>
+<div class="modal-bg" id="eventChoiceModal">
+  <div class="modal">
+    <h2 id="eventChoiceTitle">途中状况</h2>
+    <p id="eventChoicePrompt" style="font-size:14px;line-height:1.55;margin:0 0 14px"></p>
+    <div id="eventChoiceOptions" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
 </div>
 <div class="modal-bg" id="casualtyModal">
@@ -567,7 +596,8 @@ function usePowerBank() {
   S.phoneBattery = Math.min(100, S.phoneBattery + (def.phoneCharge || 40));
   log(`使用充电宝，电量约 ${S.phoneBattery}%。`, "good");
   if (g.uses <= 0) log("充电宝已用尽。", "sys");
-  refreshMeta(); renderActions();
+  if (!maybeRandomEvent("useItem")) refreshMeta();
+  renderActions();
 }
 
 function useAltitudeMeds() {
@@ -587,7 +617,10 @@ function useAltitudeMeds() {
   } else {
     return log("没有高反相关药品。", "sys");
   }
-  if (used) { refreshMeta(); renderActions(); }
+  if (used) {
+    if (!maybeRandomEvent("useItem")) refreshMeta();
+    renderActions();
+  }
 }
 
 function waitForSignal() {
@@ -597,7 +630,8 @@ function waitForSignal() {
   advanceSignalClock(0);
   drainPhoneBattery(false);
   log(`你原地等待信号恢复（约 ${wait.toFixed(1)} h），荒野里只有风声。`, "evt");
-  refreshMeta(); renderActions();
+  if (!maybeRandomEvent("waitSignal")) refreshMeta();
+  renderActions();
 }
 
 function rollTrailFind(p) {
@@ -612,6 +646,194 @@ function rollTrailFind(p) {
     if (S.foundTrail.size >= 3) unlock("memorial_trail");
     break;
   }
+}
+
+function triggerHailFx() {
+  window.__aotaiHailFx = true;
+  if (typeof AotaiMap3D !== "undefined" && AotaiMap3D.pulseHailFx) AotaiMap3D.pulseHailFx();
+  setTimeout(() => { window.__aotaiHailFx = false; }, 14000);
+}
+
+function playWeatherThunder() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = bgmCtx || new Ctx();
+    if (ctx.state === "suspended") ctx.resume();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    const n = ctx.createBufferSource();
+    const len = ctx.sampleRate * 0.25;
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    n.buffer = buf;
+    o.type = "sine";
+    o.frequency.value = 48;
+    g.gain.value = 0.0001;
+    n.connect(g);
+    o.connect(g);
+    g.connect(ctx.destination);
+    n.start();
+    o.start();
+    g.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.38);
+    o.stop(ctx.currentTime + 0.4);
+    n.stop(ctx.currentTime + 0.28);
+  } catch (_) {}
+}
+window.playWeatherThunder = playWeatherThunder;
+
+function applyEventEffects(effects) {
+  if (!effects) return;
+  if (effects.stam != null) S.stam = Math.max(0, Math.min(100, S.stam + effects.stam));
+  if (effects.food != null) S.food = Math.max(0, S.food + effects.food);
+  if (effects.water != null) S.water = Math.max(0, S.water + effects.water);
+  if (effects.money != null) S.money += effects.money;
+  if (effects.altExposure != null) {
+    S.altExposure = Math.max(0, S.altExposure + effects.altExposure);
+    updateAltitudeLevel();
+  }
+  if (effects.hypo != null) S.hypo = Math.max(0, Math.min(3, (S.hypo || 0) + effects.hypo));
+  if (effects.phoneBattery != null) S.phoneBattery = Math.max(0, Math.min(100, S.phoneBattery + effects.phoneBattery));
+  if (effects.hours) tickNeeds(effects.hours);
+  if (effects.signalHours) beginSignalBlackout(effects.signalHours, "路段进入无信号区");
+  if (effects.weather && WEATHERS[effects.weather]) S.weather = WEATHERS[effects.weather];
+  if (effects.gearUse) {
+    const g = S.gear[effects.gearUse];
+    const def = GAME.gear[effects.gearUse];
+    if (g && def && def.consumable && g.uses !== undefined) {
+      g.uses--;
+      if (g.uses <= 0) log(`${def.name} 已用完。`, "sys");
+    }
+  }
+}
+
+function randomEventBlocked() {
+  if (!S || S.ended || S.prepPhase) return true;
+  const em = document.getElementById("eventChoiceModal");
+  const ic = document.getElementById("interceptModal");
+  if (em && em.classList.contains("show")) return true;
+  if (ic && ic.classList.contains("show")) return true;
+  return false;
+}
+
+function randomEventChance(action) {
+  const cfg = GAME.randomEvents || {};
+  const table = cfg.baseChance || {};
+  let c = table[action] != null ? table[action] : 0.16;
+  const wid = S.weather ? S.weather.id : "clear";
+  if (cfg.weatherBonus && cfg.weatherBonus[wid]) c += cfg.weatherBonus[wid];
+  const p = cur();
+  if (p && cfg.altitudeBonusPer1000m && p.alt_m >= 2500) {
+    c += ((p.alt_m - 2500) / 1000) * cfg.altitudeBonusPer1000m;
+  }
+  if (p) c += (p.weather_risk || 0) * 0.007;
+  return Math.min(0.52, c);
+}
+
+function eventMatches(evt, action, p) {
+  if (evt.actions && evt.actions.length && !evt.actions.includes(action)) return false;
+  if (evt.minRisk != null && (p.weather_risk || 0) < evt.minRisk) return false;
+  if (evt.maxRisk != null && (p.weather_risk || 0) > evt.maxRisk) return false;
+  if (evt.minAlt != null && p.alt_m < evt.minAlt) return false;
+  if (evt.maxAlt != null && p.alt_m > evt.maxAlt) return false;
+  if (evt.weatherAny && evt.weatherAny.length && !evt.weatherAny.includes(S.weather.id)) return false;
+  if (evt.signalOut === true && !S.signalOut) return false;
+  if (evt.stoneSea && !isStoneSeaPoint(p)) return false;
+  if (evt.supply && !p.supply) return false;
+  if (evt.requiresGear && !hasGear(evt.requiresGear)) return false;
+  if (evt.oncePerRun && S.seenRandomEvents.has(evt.id)) return false;
+  if (action === "retreat" && evt.type === "choice") return false;
+  if (evt.type === "choice") {
+    const ok = (evt.choices || []).some(ch => !ch.requiresGear || hasGear(ch.requiresGear));
+    if (!ok) return false;
+  }
+  return true;
+}
+
+function pickRandomEvent(action) {
+  const pool = (GAME.randomEvents && GAME.randomEvents.events) || [];
+  const p = cur();
+  const eligible = pool.filter(e => eventMatches(e, action, p));
+  if (!eligible.length) return null;
+  const sum = eligible.reduce((s, e) => s + (e.weight || 1), 0);
+  let r = Math.random() * sum;
+  for (const e of eligible) {
+    r -= e.weight || 1;
+    if (r <= 0) return e;
+  }
+  return eligible[eligible.length - 1];
+}
+
+function openEventChoice(evt) {
+  S.pendingEvent = evt;
+  document.getElementById("eventChoiceTitle").textContent = evt.title || "途中状况";
+  document.getElementById("eventChoicePrompt").textContent = evt.prompt || "";
+  const box = document.getElementById("eventChoiceOptions");
+  box.innerHTML = "";
+  const choices = (evt.choices || []).filter(ch => !ch.requiresGear || hasGear(ch.requiresGear));
+  if (!choices.length) {
+    S.pendingEvent = null;
+    return false;
+  }
+  choices.forEach(ch => {
+    const btn = document.createElement("button");
+    btn.textContent = ch.label;
+    btn.style.textAlign = "left";
+    btn.onclick = () => answerEventChoice(ch);
+    box.appendChild(btn);
+  });
+  document.getElementById("eventChoiceModal").classList.add("show");
+  return true;
+}
+
+function answerEventChoice(ch) {
+  document.getElementById("eventChoiceModal").classList.remove("show");
+  const evt = S.pendingEvent;
+  S.pendingEvent = null;
+  if (evt) S.seenRandomEvents.add(evt.id);
+  if (ch && ch.log) log(`<b>你的选择</b>：${ch.log}`, "evt");
+  applyEventEffects(ch && ch.effects);
+  refreshMeta();
+  drawMap();
+  renderActions();
+  checkFail();
+}
+
+function runAutoRandomEvent(evt) {
+  if (evt.mitigatedByGear && hasGear(evt.mitigatedByGear)) {
+    log(`<b>途中事</b>：${String(evt.log).replace(/。$/, "")}——${(GAME.gear[evt.mitigatedByGear] || {}).name || "装备"}减轻了影响。`, "evt");
+    S.seenRandomEvents.add(evt.id);
+    return false;
+  }
+  log(`<b>途中事</b>：${evt.log}`, "evt");
+  if (evt.fx === "hail") triggerHailFx();
+  applyEventEffects(evt.effects);
+  S.seenRandomEvents.add(evt.id);
+  return checkFail();
+}
+
+/** @returns {boolean} 是否触发了事件（含已弹出选项框） */
+function maybeRandomEvent(action, opts = {}) {
+  if (opts.skip || randomEventBlocked()) return false;
+  if (Math.random() > randomEventChance(action)) return false;
+  const evt = pickRandomEvent(action);
+  if (!evt) return false;
+  if (evt.type === "choice") {
+    if (openEventChoice(evt)) {
+      refreshMeta();
+      return true;
+    }
+    return false;
+  }
+  const dead = runAutoRandomEvent(evt);
+  if (!dead) {
+    refreshMeta();
+    drawMap();
+    renderActions();
+  }
+  return true;
 }
 
 function isMinimalLoadout() {
@@ -904,6 +1126,8 @@ function applyEmergency(evt, risk, atPoint) {
     if (wid === "blizzard" && S.stam > 0) unlock("blizzard_live");
   }
   if (wid) consumeGearOnEvent(wid);
+  if (evt.id === "hail") triggerHailFx();
+  if (evt.id === "thunder") playWeatherThunder();
   if (evt.effect === "fall" && (S.stam <= 8 || Math.random() < 0.22)) {
     failGame("fall", "坠崖", "岩脊滑落，救援在无信号区极难展开。这一局以悲剧收场——现实里请远离暴露崖缘。");
     return true;
@@ -1130,7 +1354,13 @@ function goNext() {
     endGame(true, "主线通关 · Good Ending", `抵达鹦鸽镇！剩余现金 ¥${S.money}。省钱排名看剩余现金——你花得越少越强。`);
     return;
   }
-  refreshMeta(); drawMap(); renderActions();
+  drawMap();
+  const moveEvt = maybeRandomEvent("move", { skip: !!emerg });
+  if (!moveEvt || S.pendingEvent) {
+    refreshMeta();
+    renderActions();
+    if (S.pendingEvent) return;
+  }
 }
 
 function camp() {
@@ -1163,17 +1393,25 @@ function camp() {
   drainPhoneBattery(false);
   advanceSignalClock(0);
   const nightEmerg = rollSuddenEmergency(p.weather_risk + 1, p);
-  if (nightEmerg && Math.random() < 0.55 && applyEmergency(nightEmerg, p.weather_risk, p)) return;
+  const nightEmergHit = !!(nightEmerg && Math.random() < 0.55);
+  if (nightEmergHit && applyEmergency(nightEmerg, p.weather_risk, p)) return;
   log(`在「${p.name}」${campModeLabel(mode)}。体力 +${bonus}（已计粮水消耗），新一天天气：${S.weather.name}。`, "good");
   if (checkFail()) return;
-  refreshMeta(); drawMap(); renderActions();
+  drawMap();
+  const campEvt = maybeRandomEvent("camp", { skip: nightEmergHit });
+  if (!campEvt || S.pendingEvent) {
+    refreshMeta();
+    renderActions();
+    if (S.pendingEvent) return;
+  }
 }
 
 function fillWater() {
   if (!cur().water) return;
   S.water = Math.min(10, S.water + 3);
   log("取到干净的山泉水。饮水 +3。", "good");
-  refreshMeta(); renderActions();
+  if (!maybeRandomEvent("fillWater")) refreshMeta();
+  renderActions();
 }
 
 function buy(wha) {
@@ -1193,7 +1431,8 @@ function buy(wha) {
     tickNeeds(8, { resting: true });
     log(`住店休整。-¥${p.price_rest}，体力大恢复。`, "good");
   }
-  refreshMeta(); renderActions();
+  if (!maybeRandomEvent("buy")) refreshMeta();
+  renderActions();
 }
 
 function doRetreat() {
@@ -1208,6 +1447,7 @@ function doRetreat() {
     cost = Math.round(cost * (cfg.retreat_cost_mult || 1.25));
     log("无信号：联系包车/救援困难，你在原地多等了许久才摸到微弱信号。", "bad");
   }
+  maybeRandomEvent("retreat");
   const before = S.money;
   S.money -= cost;
   S.spentAny = true;
@@ -1522,6 +1762,8 @@ function initState() {
     interceptIdx: 0,
     selectedPackageId: null, prepPhase: true,
     disclaimerAcknowledged: false,
+    seenRandomEvents: new Set(),
+    pendingEvent: null,
   };
 }
 

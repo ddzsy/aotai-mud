@@ -11,6 +11,12 @@ window.AotaiMap3D = (function () {
   /** 0 = 全貌 · 1 = 近景跟随 */
   let mapZoom = 0.32;
   let followBearing = 0;
+  let fxCanvas = null;
+  let fxCtx = null;
+  let fxAnimId = null;
+  let fxParticles = [];
+  let fxFlash = 0;
+  let fxHailBias = false;
 
   const MAPLIBRE_CSS =
     "https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css";
@@ -32,6 +38,21 @@ window.AotaiMap3D = (function () {
     whiteout: { color: "rgb(245, 248, 250)", h: 0.5, range: [0.15, 3], opacity: 0.55 },
     gale: { color: "rgb(160, 175, 190)", h: 0.14, range: [1, 9], opacity: 0.12 },
     storm: { color: "rgb(100, 115, 140)", h: 0.25, range: [0.4, 5], opacity: 0.28 },
+    hail: { color: "rgb(120, 135, 155)", h: 0.22, range: [0.35, 4.5], opacity: 0.32 },
+  };
+
+  const OVERLAY_GRAD = {
+    clear: "linear-gradient(180deg, rgba(200,220,240,0), rgba(180,200,220,.12))",
+    cloud: "linear-gradient(180deg, rgba(190,205,220,.05), rgba(160,175,195,.14))",
+    fog: "linear-gradient(180deg, rgba(210,215,225,.25), rgba(180,185,195,.45))",
+    rain: "linear-gradient(180deg, rgba(80,100,130,.15), rgba(60,80,110,.35))",
+    heavy_rain: "linear-gradient(180deg, rgba(50,70,100,.22), rgba(40,55,80,.48))",
+    snow: "linear-gradient(180deg, rgba(230,235,245,.2), rgba(210,220,235,.38))",
+    blizzard: "linear-gradient(180deg, rgba(240,245,250,.35), rgba(220,228,238,.62))",
+    whiteout: "linear-gradient(180deg, rgba(248,250,252,.45), rgba(235,240,245,.72))",
+    gale: "linear-gradient(180deg, rgba(140,155,175,.12), rgba(100,115,135,.28))",
+    storm: "linear-gradient(180deg, rgba(30,40,60,.35), rgba(20,28,45,.55))",
+    hail: "linear-gradient(180deg, rgba(60,75,100,.28), rgba(45,55,75,.5))",
   };
 
   function ensureLib() {
@@ -219,11 +240,169 @@ window.AotaiMap3D = (function () {
     else map.jumpTo(cam);
   }
 
-  function setWeatherVisual(id) {
+  function ensureFxCanvas() {
+    const host = document.querySelector(".map-pane");
+    if (!host || fxCanvas) return;
+    fxCanvas = document.createElement("canvas");
+    fxCanvas.className = "map-weather-fx";
+    fxCanvas.setAttribute("aria-hidden", "true");
+    host.appendChild(fxCanvas);
+    fxCtx = fxCanvas.getContext("2d");
+    const ro = new ResizeObserver(() => resizeFxCanvas());
+    ro.observe(host);
+    resizeFxCanvas();
+  }
+
+  function resizeFxCanvas() {
+    if (!fxCanvas) return;
+    const host = fxCanvas.parentElement;
+    if (!host) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = host.clientWidth;
+    const h = host.clientHeight;
+    fxCanvas.width = Math.max(1, Math.floor(w * dpr));
+    fxCanvas.height = Math.max(1, Math.floor(h * dpr));
+    fxCanvas.style.width = w + "px";
+    fxCanvas.style.height = h + "px";
+    if (fxCtx) fxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function stopWeatherFx() {
+    if (fxAnimId) {
+      cancelAnimationFrame(fxAnimId);
+      fxAnimId = null;
+    }
+    fxParticles = [];
+    if (fxCtx && fxCanvas) {
+      fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
+    }
+    const host = document.querySelector(".map-pane");
+    if (host) host.classList.remove("weather-shake", "weather-storm-flash");
+  }
+
+  function spawnParticles(kind, count) {
+    const w = fxCanvas ? fxCanvas.clientWidth : 400;
+    const h = fxCanvas ? fxCanvas.clientHeight : 300;
+    for (let i = 0; i < count; i++) {
+      const p = { x: Math.random() * w, y: Math.random() * h, kind };
+      if (kind === "rain" || kind === "heavy") {
+        p.len = 8 + Math.random() * 14;
+        p.speed = 12 + Math.random() * 18;
+        p.drift = 2 + Math.random() * 4;
+      } else if (kind === "snow") {
+        p.r = 1 + Math.random() * 2.2;
+        p.speed = 0.6 + Math.random() * 1.8;
+        p.drift = 0.4 + Math.random() * 1.2;
+      } else if (kind === "blizzard") {
+        p.r = 1.2 + Math.random() * 3;
+        p.speed = 3 + Math.random() * 6;
+        p.drift = 4 + Math.random() * 8;
+      } else if (kind === "hail") {
+        p.r = 2 + Math.random() * 3;
+        p.speed = 10 + Math.random() * 14;
+        p.drift = 1 + Math.random() * 3;
+      } else if (kind === "wind") {
+        p.len = 20 + Math.random() * 40;
+        p.speed = 6 + Math.random() * 10;
+        p.drift = 8 + Math.random() * 14;
+        p.alpha = 0.15 + Math.random() * 0.25;
+      }
+      fxParticles.push(p);
+    }
+  }
+
+  function tickWeatherFx() {
+    if (!fxCtx || !fxCanvas) return;
+    const w = fxCanvas.clientWidth;
+    const h = fxCanvas.clientHeight;
+    fxCtx.clearRect(0, 0, w, h);
+    const host = document.querySelector(".map-pane");
+    if (fxFlash > 0) {
+      fxFlash -= 1;
+      if (host) host.classList.add("weather-storm-flash");
+    } else if (host) host.classList.remove("weather-storm-flash");
+
+    fxParticles.forEach((p) => {
+      if (p.kind === "rain" || p.kind === "heavy") {
+        fxCtx.strokeStyle = p.kind === "heavy" ? "rgba(160,185,210,.55)" : "rgba(170,195,220,.4)";
+        fxCtx.lineWidth = p.kind === "heavy" ? 1.4 : 1;
+        fxCtx.beginPath();
+        fxCtx.moveTo(p.x, p.y);
+        fxCtx.lineTo(p.x - p.drift, p.y + p.len);
+        fxCtx.stroke();
+        p.y += p.speed;
+        p.x -= p.drift * 0.35;
+      } else if (p.kind === "snow" || p.kind === "blizzard") {
+        fxCtx.fillStyle = p.kind === "blizzard" ? "rgba(245,248,252,.85)" : "rgba(230,238,248,.7)";
+        fxCtx.beginPath();
+        fxCtx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        fxCtx.fill();
+        p.y += p.speed;
+        p.x += p.drift;
+      } else if (p.kind === "hail") {
+        fxCtx.fillStyle = "rgba(210,220,235,.9)";
+        fxCtx.fillRect(p.x, p.y, p.r, p.r * 0.6);
+        p.y += p.speed;
+        p.x += p.drift * 0.2;
+      } else if (p.kind === "wind") {
+        fxCtx.strokeStyle = `rgba(200,215,230,${p.alpha})`;
+        fxCtx.lineWidth = 1;
+        fxCtx.beginPath();
+        fxCtx.moveTo(p.x, p.y);
+        fxCtx.lineTo(p.x + p.drift, p.y - p.len * 0.15);
+        fxCtx.stroke();
+        p.x += p.speed;
+        if (p.x > w + 40) p.x = -40;
+      }
+      if (p.y > h + 20) {
+        p.y = -10;
+        p.x = Math.random() * w;
+      }
+      if (p.x > w + 20) p.x = -10;
+      if (p.x < -30) p.x = w + 10;
+    });
+
+    if (weatherId === "storm" && Math.random() < 0.012) {
+      fxFlash = 4;
+      if (typeof window.playWeatherThunder === "function") window.playWeatherThunder();
+    }
+
+    fxAnimId = requestAnimationFrame(tickWeatherFx);
+  }
+
+  function startWeatherFx(id) {
+    ensureFxCanvas();
+    stopWeatherFx();
+    const host = document.querySelector(".map-pane");
+    const extreme = ["blizzard", "whiteout", "gale", "storm", "heavy_rain", "snow", "hail"];
+    if (!extreme.includes(id)) return;
+
+    if (id === "blizzard" || id === "whiteout") {
+      spawnParticles(id === "blizzard" ? "blizzard" : "snow", id === "whiteout" ? 90 : 120);
+      if (host) host.classList.add("weather-shake");
+    } else if (id === "snow") spawnParticles("snow", 55);
+    else if (id === "heavy_rain") spawnParticles("heavy", 100);
+    else if (id === "rain") spawnParticles("rain", 70);
+    else if (id === "storm") {
+      spawnParticles("heavy", 85);
+      if (fxHailBias) spawnParticles("hail", 35);
+    } else if (id === "hail") {
+      spawnParticles("hail", 80);
+      spawnParticles("heavy", 40);
+    } else if (id === "gale") {
+      spawnParticles("wind", 45);
+      spawnParticles("snow", 15);
+      if (host) host.classList.add("weather-shake");
+    }
+
+    fxAnimId = requestAnimationFrame(tickWeatherFx);
+  }
+
+  function setWeatherVisual(id, opts) {
     weatherId = id || "clear";
-    if (!map || !ready) return;
+    fxHailBias = !!(opts && opts.hail);
     const w = WEATHER_FOG[weatherId] || WEATHER_FOG.clear;
-    if (map.setFog) {
+    if (map && ready && map.setFog) {
       map.setFog({
         color: w.color,
         "horizon-blend": w.h,
@@ -231,7 +410,26 @@ window.AotaiMap3D = (function () {
       });
     }
     const el = document.getElementById("mapWeatherOverlay");
-    if (el) el.style.opacity = String(w.opacity);
+    if (el) {
+      el.style.opacity = String(w.opacity);
+      el.style.background = OVERLAY_GRAD[weatherId] || OVERLAY_GRAD.clear;
+      el.className = "map-weather-overlay weather-" + weatherId;
+    }
+    const host = document.querySelector(".map-pane");
+    if (host) {
+      host.dataset.weather = weatherId;
+      host.classList.remove("weather-shake", "weather-storm-flash");
+    }
+    if (["blizzard", "whiteout", "gale", "storm", "heavy_rain", "snow", "hail"].includes(weatherId)) {
+      startWeatherFx(weatherId);
+    } else {
+      stopWeatherFx();
+    }
+  }
+
+  function pulseHailFx() {
+    fxHailBias = true;
+    if (weatherId === "storm") startWeatherFx("storm");
   }
 
   function setZoom(z) {
@@ -322,6 +520,7 @@ window.AotaiMap3D = (function () {
 
   function resize() {
     if (map) map.resize();
+    resizeFxCanvas();
   }
 
   function update(idx, weather, points) {
@@ -337,7 +536,7 @@ window.AotaiMap3D = (function () {
           followBearing = bearingBetween(prev, next);
         }
         if (map && map.isStyleLoaded()) updateRouteSources();
-        setWeatherVisual(weather);
+        setWeatherVisual(weather, { hail: weather === "storm" && window.__aotaiHailFx });
         if (ready) applyCamera(changed);
       })
       .catch((e) => console.warn("MapLibre", e));
@@ -356,5 +555,7 @@ window.AotaiMap3D = (function () {
     adjustZoom,
     getZoom: () => mapZoom,
     isReady,
+    pulseHailFx,
+    setWeatherVisual,
   };
 })();
