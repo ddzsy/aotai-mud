@@ -143,6 +143,38 @@
       "type": "gear",
       "gear": "poncho",
       "weight": 0.08
+    },
+    {
+      "id": "rhodiola",
+      "name": "红景天（预防）",
+      "cost": 35,
+      "type": "gear",
+      "gear": "rhodiola",
+      "weight": 0.08
+    },
+    {
+      "id": "oxygen",
+      "name": "便携氧气瓶",
+      "cost": 48,
+      "type": "gear",
+      "gear": "oxygen",
+      "weight": 0.35
+    },
+    {
+      "id": "painkiller",
+      "name": "止疼药/布洛芬",
+      "cost": 18,
+      "type": "gear",
+      "gear": "painkiller",
+      "weight": 0.05
+    },
+    {
+      "id": "powerbank",
+      "name": "充电宝",
+      "cost": 42,
+      "type": "gear",
+      "gear": "powerbank",
+      "weight": 0.22
     }
   ],
   "gear": {
@@ -248,8 +280,128 @@
     "whistle": {
       "name": "求生哨",
       "stamReduce": 0
+    },
+    "rhodiola": {
+      "name": "红景天",
+      "altitudeGuard": true,
+      "consumable": true,
+      "uses": 8
+    },
+    "oxygen": {
+      "name": "氧气瓶",
+      "altitudeRelief": 2,
+      "consumable": true,
+      "uses": 3
+    },
+    "painkiller": {
+      "name": "止疼药",
+      "altitudeStamReduce": 5,
+      "consumable": true,
+      "uses": 6
+    },
+    "powerbank": {
+      "name": "充电宝",
+      "phoneCharge": 45,
+      "consumable": true,
+      "uses": 1
     }
   },
+  "mechanics": {
+    "altitude": {
+      "onset_m": 3300,
+      "severe_m": 3500,
+      "recover_below_m": 3000,
+      "camp_high_m": 3400
+    },
+    "signal": {
+      "min_hours": 2,
+      "max_hours": 7,
+      "retreat_extra_hours": 3,
+      "retreat_cost_mult": 1.25
+    }
+  },
+  "intercept": {
+    "questionCount": 3,
+    "minCorrect": 2,
+    "slipThroughBase": 0.52,
+    "randomTurnbackBase": 0.1,
+    "fineChance": 0.08,
+    "fineAmount": 200,
+    "questions": [
+      {
+        "q": "自 2018 年起，鳌太线穿越在保护区属于？",
+        "options": ["开放徒步线路", "禁止非法穿越", "只需网上报备"],
+        "answer": 1
+      },
+      {
+        "q": "林草/森林公安在沟口设卡的主要目的是？",
+        "options": ["收取门票", "劝返并防止非法进山", "推销向导"],
+        "answer": 1
+      },
+      {
+        "q": "梁顶天气突变时，最稳妥的做法是？",
+        "options": ["加速冲过去", "找低处避风并评估下撤", "分开行动互不相顾"],
+        "answer": 1
+      },
+      {
+        "q": "鳌太高海拔常见风险不包括？",
+        "options": ["高原反应", "失温", "城市热岛效应"],
+        "answer": 2
+      },
+      {
+        "q": "夜间梁顶硬扛失温，错误做法是？",
+        "options": ["加穿干燥保暖层", "喝白酒取暖", "进帐篷换干衣"],
+        "answer": 1
+      },
+      {
+        "q": "非法穿越被查处，可能面临？",
+        "options": ["仅口头警告", "行政处罚甚至追责", "景区积分扣分"],
+        "answer": 1
+      },
+      {
+        "q": "无信号区遇险，应优先？",
+        "options": ["继续硬走找信号", "保命下撤并择机求救", "直播求赞"],
+        "answer": 1
+      },
+      {
+        "q": "「极限省钱」进山，最危险的是？",
+        "options": ["少带一两顿饭", "关键保暖/雨具/头灯都不带", "背包颜色不够潮"],
+        "answer": 1
+      }
+    ]
+  },
+  "trailFinds": [
+    {
+      "id": "ribbon_nav",
+      "pointIds": [7, 12],
+      "chance": 0.14,
+      "log": "岩缝里系着褪色的纪念丝带，旁边刻着「回家」——鳌太从不缺故事，只缺回来的人。"
+    },
+    {
+      "id": "tent_stone",
+      "pointIds": [23, 26],
+      "chance": 0.11,
+      "log": "石海旁塌了半边的旧帐篷，睡袋还在风里抽打。你不敢久留：这里曾有人把「再撑一天」写在日记里。"
+    },
+    {
+      "id": "boot_ridge",
+      "pointIds": [10, 13, 14],
+      "chance": 0.1,
+      "log": "乱石里一只磨穿底的登山靴，鞋带还打着结。你想起新闻里那些「最后一段轨迹」。"
+    },
+    {
+      "id": "journal_camp",
+      "pointIds": [5, 11, 24],
+      "chance": 0.12,
+      "log": "营地石缝里夹着泡烂的本子，字迹模糊：「头好痛……信号还是没有」。纸边有泥手印。"
+    },
+    {
+      "id": "cairn_baxian",
+      "pointIds": [29, 28, 27],
+      "chance": 0.13,
+      "log": "拔仙台附近的鳌太遇难山友纪念碑前，有人放了照片和一支快燃尽的香。风从梁顶灌下来——现实里，请勿非法穿越。"
+    }
+  ],
   "emergencies": [
     {
       "id": "blizzard",
@@ -320,6 +472,47 @@
       "stam": 6,
       "mult": 0.15,
       "log": "气温骤降，阵雪打在脸上生疼。"
+    },
+    {
+      "id": "hail",
+      "name": "冰雹",
+      "weather": "storm",
+      "minRisk": 3,
+      "weight": 0.75,
+      "stam": 11,
+      "mult": 0.22,
+      "log": "豆大的冰雹砸在头盔上噼啪作响，裸露皮肤迅速淤青。"
+    },
+    {
+      "id": "hypothermia",
+      "name": "失温征兆",
+      "effect": "hypothermia",
+      "minRisk": 2,
+      "weight": 0.7,
+      "stam": 8,
+      "mult": 0.12,
+      "log": "湿冷渗入衣物，手指发麻、说话打颤——失温在逼近。"
+    },
+    {
+      "id": "stone_lost",
+      "name": "石海迷路",
+      "effect": "stone_lost",
+      "minRisk": 4,
+      "weight": 0.55,
+      "stam": 12,
+      "mult": 0.35,
+      "log": "石海标记难辨，轨迹一断就分不清方向，你在乱石间兜圈。",
+      "needsStoneSea": true
+    },
+    {
+      "id": "cliff_slip",
+      "name": "岩脊滑坠",
+      "effect": "fall",
+      "minRisk": 4,
+      "weight": 0.35,
+      "stam": 22,
+      "mult": 0.1,
+      "log": "湿滑的岩脊一脚踏空，你抓住岩棱勉强止住——再偏半米就是崖外。"
     }
   ]
 }
