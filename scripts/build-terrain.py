@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""从 Mapbox Skadi SRTM 瓦片生成 terrain-heightmap.png 与 terrain-meta.json。"""
+"""从 Mapbox Skadi SRTM 瓦片生成旧版 Three.js 用地形图（仅开发归档，Pages 不发布）。"""
 import gzip
 import json
+import os
 import urllib.request
 import numpy as np
 from PIL import Image
@@ -10,6 +11,7 @@ LA0, LA1 = 32.90, 34.06
 LO0, LO1 = 107.50, 107.90
 TILES = ["N34E106", "N34E107", "N33E107"]
 OUT_W, OUT_H = 384, 352
+OUT_DIR = os.path.join(os.path.dirname(__file__), "legacy")
 
 
 def load_tile(tile: str):
@@ -22,6 +24,7 @@ def load_tile(tile: str):
 
 
 def main():
+    os.makedirs(OUT_DIR, exist_ok=True)
     rows = int(round((LA1 - LA0) * 3600)) + 1
     cols = int(round((LO1 - LO0) * 3600)) + 1
     dem = np.full((rows, cols), np.nan, dtype=np.float32)
@@ -38,9 +41,9 @@ def main():
     dem = np.where(np.isnan(dem), np.nanmean(dem), dem)
     emin, emax = float(dem.min()), float(dem.max())
     norm = ((dem - emin) / (emax - emin) * 255).astype(np.uint8)
-    Image.fromarray(norm).resize((OUT_W, OUT_H), Image.BILINEAR).save(
-        "terrain-heightmap.png", optimize=True
-    )
+    png_path = os.path.join(OUT_DIR, "terrain-heightmap.png")
+    meta_path = os.path.join(OUT_DIR, "terrain-meta.json")
+    Image.fromarray(norm).resize((OUT_W, OUT_H), Image.BILINEAR).save(png_path, optimize=True)
     meta = {
         "lat_min": LA0,
         "lat_max": LA1,
@@ -52,9 +55,9 @@ def main():
         "height": OUT_H,
         "source": "SRTM Skadi 1 arc-sec (merged)",
     }
-    with open("terrain-meta.json", "w", encoding="utf-8") as f:
+    with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
-    print("wrote terrain-heightmap.png", emin, "–", emax, "m")
+    print("wrote", png_path, emin, "–", emax, "m")
 
 
 if __name__ == "__main__":

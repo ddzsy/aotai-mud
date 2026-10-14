@@ -85,12 +85,6 @@
     background: rgba(0,0,0,.5); padding: 6px 10px; border-radius: 6px; z-index: 2; max-width: 55%;
     line-height: 1.35;
   }
-  .map-minimap {
-    position: absolute; right: 10px; top: 10px; z-index: 3;
-    width: 168px; height: 118px; border-radius: 8px;
-    border: 1px solid var(--line); background: rgba(8,12,18,.82);
-    pointer-events: none;
-  }
   .map-zoom {
     position: absolute; right: 10px; bottom: 52px; z-index: 3;
     display: flex; flex-direction: column; align-items: center; gap: 4px;
@@ -183,8 +177,7 @@
       <div class="line1">秦岭 · 鳌太线</div>
       <div class="line2">禁止非法穿越</div>
     </div>
-    <div class="map-loc" id="mapLoc">加载卫星地形…</div>
-    <canvas id="map2d" class="map-minimap" width="168" height="118" aria-label="2D示意线路"></canvas>
+    <div class="map-loc" id="mapLoc">出发前不加载地图 · 买完点「出发」</div>
     <div class="map-zoom" title="滚轮可缩放">
       <span>近景</span>
       <button type="button" onclick="mapZoomStep(0.12)">＋</button>
@@ -192,7 +185,7 @@
       <button type="button" onclick="mapZoomStep(-0.12)">－</button>
       <span>全貌</span>
     </div>
-    <div class="map-legend">Esri 卫星 + Terrarium 地形 · 红=已走 · 白=前方 · 绿标=你<br/>右上=2D 示意 · 滑条/滚轮调节跟拍远近</div>
+    <div class="map-legend">Esri 卫星示意 · 红=已走 · 白=前方 · 绿点=你 · 滑条/滚轮调远近</div>
   </div>
   <div class="game-pane">
     <div id="log"></div>
@@ -230,8 +223,6 @@
     <div style="margin-top:14px"><button onclick="document.getElementById('achModal').classList.remove('show')">关闭</button></div>
   </div>
 </div>
-<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
-<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="map3d.js"></script>
 <script>
 let DATA = { points: [], retreats: {} };
@@ -488,64 +479,24 @@ function mapZoomStep(delta) {
   if (typeof AotaiMap3D !== "undefined") AotaiMap3D.adjustZoom(delta);
 }
 
-function drawSchematicMinimap() {
-  const canvas = document.getElementById("map2d");
-  const pts = DATA.points;
-  if (!canvas || !pts.length) return;
-  const ctx = canvas.getContext("2d");
-  const w = canvas.width;
-  const h = canvas.height;
-  ctx.clearRect(0, 0, w, h);
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  pts.forEach((p) => {
-    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
-    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
-  });
-  const pad = 12;
-  const sx = (w - pad * 2) / (maxX - minX);
-  const sy = (h - pad * 2) / (maxY - minY);
-  const sc = Math.min(sx, sy);
-  const ox = (w - (maxX - minX) * sc) / 2;
-  const oy = (h - (maxY - minY) * sc) / 2;
-  const tx = (x) => ox + (x - minX) * sc;
-  const ty = (y) => oy + (y - minY) * sc;
-  ctx.strokeStyle = "#4a5a68";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  pts.forEach((p, i) => {
-    const x = tx(p.x), y = ty(p.y);
-    if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
-  });
-  ctx.stroke();
-  ctx.strokeStyle = "#5dbe8a";
-  ctx.beginPath();
-  pts.forEach((p, i) => {
-    if (i > S.idx) return;
-    const x = tx(p.x), y = ty(p.y);
-    if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
-  });
-  ctx.stroke();
-  const cur = pts[S.idx];
-  ctx.fillStyle = "#e8a54b";
-  ctx.beginPath();
-  ctx.arc(tx(cur.x), ty(cur.y), 4, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#8b9aab";
-  ctx.font = "9px sans-serif";
-  ctx.fillText("2D示意", 6, 12);
+function progressKm(idx) {
+  let t = 0;
+  for (let i = 1; i <= idx && i < DATA.points.length; i++) {
+    t += DATA.points[i].km_from_prev || 0;
+  }
+  return t;
 }
 
 function drawMap() {
   const pts = DATA.points;
   if (!pts.length || typeof AotaiMap3D === "undefined") return;
-  if (!AotaiMap3D.isReady()) AotaiMap3D.init(pts);
   const p = pts[S.idx];
   const w = S.weather ? S.weather.id : "clear";
-  AotaiMap3D.update(S.idx, w);
-  drawSchematicMinimap();
+  AotaiMap3D.update(S.idx, w, pts);
   const loc = document.getElementById("mapLoc");
   if (loc && p) {
-    loc.innerHTML = `<b>${p.name}</b> · ${p.alt_m}m<br/><span style="color:var(--muted);font-size:11px">卫星跟拍 · 绿标为当前位置 · 右上 2D 示意</span>`;
+    const km = progressKm(S.idx).toFixed(1);
+    loc.innerHTML = `<b>${p.name}</b> · ${p.alt_m}m · 约 ${km} km<br/><span style="color:var(--muted);font-size:11px">卫星示意 · 绿点为当前位置</span>`;
   }
 }
 
@@ -800,7 +751,7 @@ function buyShopItem(item) {
 function finishShop() {
   document.getElementById("shopModal").classList.remove("show");
   log("塘口村，清晨。你整理背包，沿火烧坡方向进山。目标：鳌山进、太白出，尽量少花钱走到鹦鸽。", "sys");
-  log("左侧为卫星 3D 跟拍：绿标是你，红线为已走路径。滑条/滚轮调节远近。任意地点可过夜；下撤可后补车费。", "sys");
+  log("左侧为卫星示意地图：绿点是你，红线为已走路径。滑条/滚轮调节远近。任意地点可过夜；下撤可后补车费。", "sys");
   refreshMeta(); drawMap(); renderActions();
   if (typeof AotaiMap3D !== "undefined") setTimeout(() => AotaiMap3D.resize(), 80);
   startBgmAutoplay();
