@@ -9,13 +9,17 @@ window.AotaiMap3D = (function () {
   let playerIdx = 0;
   let weatherId = "clear";
   /** 0 = 全貌 · 1 = 近景跟随 */
-  let mapZoom = 0.38;
+  let mapZoom = 0.32;
   let followBearing = 0;
 
-  const TERRAIN_URL =
-    "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
+  const MAPLIBRE_CSS =
+    "https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css";
+  const MAPLIBRE_JS =
+    "https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js";
   const IMAGERY_URL =
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+
+  let libPromise = null;
 
   const WEATHER_FOG = {
     clear: { color: "rgb(186, 210, 235)", h: 0.08, range: [2, 12], opacity: 0 },
@@ -29,6 +33,24 @@ window.AotaiMap3D = (function () {
     gale: { color: "rgb(160, 175, 190)", h: 0.14, range: [1, 9], opacity: 0.12 },
     storm: { color: "rgb(100, 115, 140)", h: 0.25, range: [0.4, 5], opacity: 0.28 },
   };
+
+  function ensureLib() {
+    if (typeof maplibregl !== "undefined") return Promise.resolve();
+    if (libPromise) return libPromise;
+    libPromise = new Promise((resolve, reject) => {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = MAPLIBRE_CSS;
+      document.head.appendChild(link);
+      const script = document.createElement("script");
+      script.src = MAPLIBRE_JS;
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("MapLibre CDN failed"));
+      document.head.appendChild(script);
+    });
+    return libPromise;
+  }
 
   function coord(p) {
     const lon = p.lon;
@@ -69,13 +91,11 @@ window.AotaiMap3D = (function () {
 
   function sliceRoute(upToIdx) {
     const n = Math.min(upToIdx + 1, routeCoords.length);
-    const base = routeCoords.slice(0, n);
-    return densifyLine(base, 4);
+    return densifyLine(routeCoords.slice(0, n), 2);
   }
 
   function remainingRoute(fromIdx) {
-    const base = routeCoords.slice(fromIdx);
-    return densifyLine(base, 4);
+    return densifyLine(routeCoords.slice(fromIdx), 2);
   }
 
   function bearingBetween(a, b) {
@@ -91,12 +111,6 @@ window.AotaiMap3D = (function () {
     if (!routeCoords.length) return [107.76, 34.02];
     const i = Math.min(playerIdx, routeCoords.length - 1);
     return routeCoords[i];
-  }
-
-  function distanceLabel() {
-    const km = cumKm[Math.min(playerIdx, cumKm.length - 1)] || 0;
-    if (km < 10) return km.toFixed(1) + "km";
-    return km.toFixed(1) + "km";
   }
 
   function poiGeoJSON() {
@@ -116,39 +130,12 @@ window.AotaiMap3D = (function () {
     };
   }
 
-  function ensureHikerImage() {
-    if (map.hasImage("hiker-icon")) return;
-    const size = 64;
-    const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#2ecc71";
-    ctx.strokeStyle = "#1a7a42";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.roundRect(4, 4, size - 8, size - 8, 10);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#0d3d22";
-    ctx.font = "bold 28px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("🥾", size / 2, size / 2 + 2);
-    const img = ctx.getImageData(0, 0, size, size);
-    map.addImage("hiker-icon", img, { pixelRatio: 2 });
-  }
-
   function addLayers() {
     map.addSource("route-done", {
       type: "geojson",
       data: { type: "Feature", geometry: { type: "LineString", coordinates: [] } },
     });
     map.addSource("route-todo", {
-      type: "geojson",
-      data: { type: "Feature", geometry: { type: "LineString", coordinates: [] } },
-    });
-    map.addSource("route-active", {
       type: "geojson",
       data: { type: "Feature", geometry: { type: "LineString", coordinates: [] } },
     });
@@ -159,39 +146,18 @@ window.AotaiMap3D = (function () {
     });
 
     map.addLayer({
-      id: "route-todo-glow",
-      type: "line",
-      source: "route-todo",
-      layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": "rgba(255,255,255,0.25)", "line-width": 10 },
-    });
-    map.addLayer({
       id: "route-todo",
       type: "line",
       source: "route-todo",
       layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": "#f4f6f8", "line-width": 5 },
-    });
-    map.addLayer({
-      id: "route-done-glow",
-      type: "line",
-      source: "route-done",
-      layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": "rgba(220,40,40,0.35)", "line-width": 12 },
+      paint: { "line-color": "#e8ecef", "line-width": 4 },
     });
     map.addLayer({
       id: "route-done",
       type: "line",
       source: "route-done",
       layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": "#e82222", "line-width": 6 },
-    });
-    map.addLayer({
-      id: "route-active",
-      type: "line",
-      source: "route-active",
-      layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": "#ffffff", "line-width": 7 },
+      paint: { "line-color": "#e82222", "line-width": 5 },
     });
 
     map.addLayer({
@@ -199,94 +165,49 @@ window.AotaiMap3D = (function () {
       type: "circle",
       source: "pois",
       paint: {
-        "circle-radius": 5,
-        "circle-color": "#e82222",
-        "circle-stroke-width": 2,
+        "circle-radius": 4,
+        "circle-color": "#c41e1e",
+        "circle-stroke-width": 1.5,
         "circle-stroke-color": "#fff",
       },
     });
-    map.addLayer({
-      id: "poi-label",
-      type: "symbol",
-      source: "pois",
-      layout: {
-        "text-field": ["get", "name"],
-        "text-size": 11,
-        "text-offset": [0, 1.2],
-        "text-anchor": "top",
-        "text-font": ["Open Sans Regular"],
-      },
-      paint: {
-        "text-color": "#ffe566",
-        "text-halo-color": "rgba(0,0,0,0.85)",
-        "text-halo-width": 1.5,
-      },
-    });
 
-    ensureHikerImage();
     map.addLayer({
-      id: "player-icon",
-      type: "symbol",
+      id: "player-dot",
+      type: "circle",
       source: "player",
-      layout: {
-        "icon-image": "hiker-icon",
-        "icon-size": 0.55,
-        "icon-allow-overlap": true,
-        "icon-ignore-placement": true,
-        "text-field": distanceLabel(),
-        "text-size": 12,
-        "text-offset": [1.4, 0],
-        "text-anchor": "left",
-        "text-font": ["Open Sans Bold"],
-      },
       paint: {
-        "text-color": "#ffffff",
-        "text-halo-color": "rgba(0,0,0,0.75)",
-        "text-halo-width": 1.2,
+        "circle-radius": 9,
+        "circle-color": "#2ecc71",
+        "circle-stroke-width": 2.5,
+        "circle-stroke-color": "#0d3d22",
       },
     });
   }
 
   function updateRouteSources() {
     if (!map || !map.getSource("route-done")) return;
-    const done = sliceRoute(playerIdx);
-    const todo = remainingRoute(playerIdx);
-    let active = [];
-    if (playerIdx < routeCoords.length - 1) {
-      active = densifyLine(routeCoords.slice(playerIdx, playerIdx + 2), 6);
-    } else if (routeCoords.length >= 2) {
-      active = routeCoords.slice(-2);
-    }
-
     map.getSource("route-done").setData({
       type: "Feature",
-      geometry: { type: "LineString", coordinates: done },
+      geometry: { type: "LineString", coordinates: sliceRoute(playerIdx) },
     });
     map.getSource("route-todo").setData({
       type: "Feature",
-      geometry: { type: "LineString", coordinates: todo },
-    });
-    map.getSource("route-active").setData({
-      type: "Feature",
-      geometry: { type: "LineString", coordinates: active },
+      geometry: { type: "LineString", coordinates: remainingRoute(playerIdx) },
     });
     map.getSource("player").setData({
       type: "Feature",
       geometry: { type: "Point", coordinates: playerPosition() },
-      properties: {},
     });
-    if (map.getLayer("player-icon")) {
-      map.setLayoutProperty("player-icon", "text-field", distanceLabel());
-    }
   }
 
   function applyCamera(animate) {
     if (!map || !ready) return;
     const pos = playerPosition();
     const t = mapZoom;
-    const zoom = 11.2 + t * 2.4;
-    const pitch = 42 + t * 22;
-    const offsetKm = 0.35 + (1 - t) * 2.8;
+    const zoom = 9.8 + t * 1.5;
+    const pitch = 36 + t * 16;
+    const offsetKm = 0.45 + (1 - t) * 3.2;
     const rad = (followBearing * Math.PI) / 180;
     const lat = pos[1];
     const mPerDegLon = 111320 * Math.cos((lat * Math.PI) / 180);
@@ -294,7 +215,7 @@ window.AotaiMap3D = (function () {
     const backLon = pos[0] - (Math.sin(rad) * offsetKm * 1000) / mPerDegLon;
     const backLat = pos[1] - (Math.cos(rad) * offsetKm * 1000) / mPerDegLat;
     const cam = { center: [backLon, backLat], zoom, pitch, bearing: followBearing, essential: true };
-    if (animate) map.easeTo({ ...cam, duration: 900 });
+    if (animate) map.easeTo({ ...cam, duration: 700 });
     else map.jumpTo(cam);
   }
 
@@ -358,44 +279,30 @@ window.AotaiMap3D = (function () {
       container,
       style: {
         version: 8,
-        glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
         sources: {
           satellite: {
             type: "raster",
             tiles: [IMAGERY_URL],
             tileSize: 256,
-            attribution: "Esri, Maxar, Earthstar Geographics",
-            maxzoom: 19,
-          },
-          terrain: {
-            type: "raster-dem",
-            tiles: [TERRAIN_URL],
-            encoding: "terrarium",
-            tileSize: 256,
-            maxzoom: 15,
+            attribution: "Esri",
+            maxzoom: 13,
           },
         },
-        layers: [
-          {
-            id: "satellite",
-            type: "raster",
-            source: "satellite",
-          },
-        ],
+        layers: [{ id: "satellite", type: "raster", source: "satellite" }],
       },
       center: routeCoords[0] || [107.76, 34.02],
-      zoom: 11,
-      pitch: 55,
+      zoom: 10,
+      pitch: 44,
       bearing: 0,
-      maxPitch: 85,
-      antialias: true,
-      attributionControl: true,
+      maxZoom: 12,
+      minZoom: 8,
+      maxPitch: 60,
+      antialias: false,
+      attributionControl: { compact: true },
+      fadeDuration: 0,
     });
 
-    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
-
     map.on("load", () => {
-      map.setTerrain({ source: "terrain", exaggeration: 1.35 });
       addLayers();
       playerIdx = 0;
       if (routeCoords.length > 1) {
@@ -403,11 +310,11 @@ window.AotaiMap3D = (function () {
       }
       updateRouteSources();
       setWeatherVisual("clear");
-      map.fitBounds(bounds, { padding: 60, pitch: 48, duration: 0 });
+      map.fitBounds(bounds, { padding: 48, pitch: 40, duration: 0, maxZoom: 10.5 });
       setTimeout(() => {
         ready = true;
         setZoom(mapZoom);
-      }, 50);
+      }, 40);
     });
 
     bindZoomInput();
@@ -417,20 +324,23 @@ window.AotaiMap3D = (function () {
     if (map) map.resize();
   }
 
-  function update(idx, weather) {
-    if (!map) return;
-    if (!ready && gamePoints.length) init(gamePoints);
-    const changed = idx !== playerIdx;
-    playerIdx = idx;
-    if (changed && routeCoords.length > 1) {
-      const i = Math.min(playerIdx, routeCoords.length - 1);
-      const prev = routeCoords[Math.max(0, i - 1)];
-      const next = routeCoords[Math.min(routeCoords.length - 1, i + 1)];
-      followBearing = bearingBetween(prev, next);
-    }
-    if (map.isStyleLoaded()) updateRouteSources();
-    setWeatherVisual(weather);
-    if (ready) applyCamera(changed);
+  function update(idx, weather, points) {
+    ensureLib()
+      .then(() => {
+        if (!map && !initStarted && points && points.length) init(points);
+        const changed = idx !== playerIdx;
+        playerIdx = idx;
+        if (changed && routeCoords.length > 1) {
+          const i = Math.min(playerIdx, routeCoords.length - 1);
+          const prev = routeCoords[Math.max(0, i - 1)];
+          const next = routeCoords[Math.min(routeCoords.length - 1, i + 1)];
+          followBearing = bearingBetween(prev, next);
+        }
+        if (map && map.isStyleLoaded()) updateRouteSources();
+        setWeatherVisual(weather);
+        if (ready) applyCamera(changed);
+      })
+      .catch((e) => console.warn("MapLibre", e));
   }
 
   function isReady() {
@@ -438,6 +348,7 @@ window.AotaiMap3D = (function () {
   }
 
   return {
+    ensureLib,
     init,
     update,
     resize,
